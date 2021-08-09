@@ -5,7 +5,6 @@ url: "" # the base hostname & protocol for your site, e.g. http://example.com
 github_username:  pskrgag
 
 # Build settings
-theme: jekyll-shell-theme
 remote_theme: "tareqdandachi/jekyll-shell-theme"
 plugins:
   - jemoji
