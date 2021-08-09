@@ -6,6 +6,7 @@ github_username:  pskrgag
 
 # Build settings
 theme: jekyll-shell-theme
+remote_theme: jekyll-shell-theme
 plugins:
   - jemoji
   - jekyll-sitemap
