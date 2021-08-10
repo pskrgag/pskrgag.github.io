@@ -8,7 +8,7 @@ permalink_name: /about
 ---
 
 
-<img align="left" width="300" height="300" src="/assets/53155781.jpeg">
+<img align="left" width="300" height="300" src="/assets/53155781.png">
 
 <div style="color:red;font-weight:bold;" align="center">Pavel Skripkin</div>
 <div align="center">Linux kernel developer/hobbyist</div>
