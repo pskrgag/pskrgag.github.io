@@ -23,7 +23,7 @@ permalink_name: /about
 
 &nbsp;&nbsp;&nbsp;[Linux kernel](https://git.kernel.org/pub/scm/linux/kernel/git/next/linux-next.git/log/?qt=grep&q=paskripkin)
 &nbsp;&nbsp;&nbsp;[Smatch](https://repo.or.cz/smatch.git?a=search&h=HEAD&st=commit&s=paskripkin&.cgifields=sr)
-
+&nbsp;&nbsp;&nbsp;[syzkaller](https://github.com/google/syzkaller/commits?author=pskrgag)
 <br/><br/>
 
 
