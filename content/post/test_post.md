@@ -1,7 +1,7 @@
 +++
 title = "How to fix a bug in the Linux kernel"
 description = "Markdown Syntax test page"
-date = "2020-05-11"
+date = "2022-03-18"
 tags = ["linux kernel"]
 +++
 
