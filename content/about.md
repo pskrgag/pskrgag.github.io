@@ -11,7 +11,7 @@ showToc = false
 <div style="color:pink;font-weight:bold;" align="center">Pavel Skripkin</div>
 <div align="center" style="font-weight:bold;">Linux kernel developer/hobbyist</div>
 
-<br />
+\
 email: paskripkin@gmail.com \
 github: [pskrgag](https://github.com/pskrgag) \
 linkedin: [pskrgag](https://www.linkedin.com/in/pskrgag/)
