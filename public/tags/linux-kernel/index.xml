@@ -1,21 +1,2 @@
-<?xml version="1.0" encoding="utf-8" standalone="yes"?>
-<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
-  <channel>
-    <title>linux kernel on Pavel Skripkin&#39;s blog</title>
-    <link>https://pskrgag.github.io/tags/linux-kernel/</link>
-    <description>Recent content in linux kernel on Pavel Skripkin&#39;s blog</description>
-    <generator>Hugo -- gohugo.io</generator>
-    <language>en</language>
-    <lastBuildDate>Mon, 11 May 2020 00:00:00 +0000</lastBuildDate><atom:link href="https://pskrgag.github.io/tags/linux-kernel/index.xml" rel="self" type="application/rss+xml" />
-    <item>
-      <title>How to fix a bug in the Linux kernel</title>
-      <link>https://pskrgag.github.io/post/test_post/</link>
-      <pubDate>Mon, 11 May 2020 00:00:00 +0000</pubDate>
-      
-      <guid>https://pskrgag.github.io/post/test_post/</guid>
-      <description>Intro Since the only thing I can do is fixing random kernel bugs, I&amp;rsquo;d like to show how to understand and fix bugs reported by syzkaller by example. There are a lot of open bugs, so anyone who is looking for first contribution should try it! Most of the bugs really common, but in most cases maintainers do not have much time to fix bugs. It&amp;rsquo;s great chance to step in and join kernel community by just adding missing validation check or something
-Configuration To fix a bug in the Linux kernel you should at least download the sources. The official tree locates here and you can download it like this</description>
-    </item>
-    
-  </channel>
-</rss>
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>linux kernel on Pavel Skripkin's blog</title><link>https://pskrgag.github.io/tags/linux-kernel/</link><description>Recent content in linux kernel on Pavel Skripkin's blog</description><generator>Hugo -- gohugo.io</generator><language>en</language><lastBuildDate>Fri, 18 Mar 2022 00:00:00 +0000</lastBuildDate><atom:link href="https://pskrgag.github.io/tags/linux-kernel/index.xml" rel="self" type="application/rss+xml"/><item><title>How to fix a bug in the Linux kernel</title><link>https://pskrgag.github.io/post/test_post/</link><pubDate>Fri, 18 Mar 2022 00:00:00 +0000</pubDate><guid>https://pskrgag.github.io/post/test_post/</guid><description>Intro Since the only thing I can do is fixing random kernel bugs, I&amp;rsquo;d like to show how to understand and fix bugs reported by syzkaller by example. There are a lot of open bugs, so anyone who is looking for first contribution should try it! Most of the bugs really common, but in most cases maintainers do not have much time to fix bugs. It&amp;rsquo;s great chance to step in and join kernel community by just adding missing validation check or something
+Configuration To fix a bug in the Linux kernel you should at least download the sources. The official tree locates here and you can download it like this</description></item></channel></rss>

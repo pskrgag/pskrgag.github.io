@@ -1,21 +1,7 @@
-<?xml version="1.0" encoding="utf-8" standalone="yes"?>
-<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
-  <channel>
-    <title>Posts on Pavel Skripkin&#39;s blog</title>
-    <link>https://pskrgag.github.io/post/</link>
-    <description>Recent content in Posts on Pavel Skripkin&#39;s blog</description>
-    <generator>Hugo -- gohugo.io</generator>
-    <language>en</language>
-    <lastBuildDate>Mon, 11 May 2020 00:00:00 +0000</lastBuildDate><atom:link href="https://pskrgag.github.io/post/index.xml" rel="self" type="application/rss+xml" />
-    <item>
-      <title>How to fix a bug in the Linux kernel</title>
-      <link>https://pskrgag.github.io/post/test_post/</link>
-      <pubDate>Mon, 11 May 2020 00:00:00 +0000</pubDate>
-      
-      <guid>https://pskrgag.github.io/post/test_post/</guid>
-      <description>Intro Since the only thing I can do is fixing random kernel bugs, I&amp;rsquo;d like to show how to understand and fix bugs reported by syzkaller by example. There are a lot of open bugs, so anyone who is looking for first contribution should try it! Most of the bugs really common, but in most cases maintainers do not have much time to fix bugs. It&amp;rsquo;s great chance to step in and join kernel community by just adding missing validation check or something
-Configuration To fix a bug in the Linux kernel you should at least download the sources. The official tree locates here and you can download it like this</description>
-    </item>
-    
-  </channel>
-</rss>
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Posts on Pavel Skripkin's blog</title><link>https://pskrgag.github.io/post/</link><description>Recent content in Posts on Pavel Skripkin's blog</description><generator>Hugo -- gohugo.io</generator><language>en</language><lastBuildDate>Fri, 10 May 2024 00:00:00 +0000</lastBuildDate><atom:link href="https://pskrgag.github.io/post/index.xml" rel="self" type="application/rss+xml"/><item><title>Subset of JSON parser in 150 lines of Haskell code</title><link>https://pskrgag.github.io/post/json/</link><pubDate>Fri, 10 May 2024 00:00:00 +0000</pubDate><guid>https://pskrgag.github.io/post/json/</guid><description>Intro Recently I have started to learn Haskell at my spare time by solving codewars problems time-to-time. This post is about my solution for this kata, since I was impressed by power of applicative parsing and want to document things I have learned during solving.
+NOTE: I am no way an expert in Haskell or FP languages, so my solution might be not the best/cleanest/etc.
+The task The task is simple: implement a parser for a subset of JSON. The only big difference from real json is no support for exponential numbers and unicode characters.
+Language task suggest to implement has following (BNF)[https://en.</description></item><item><title>Writing simple address-sanitizer llvm pass</title><link>https://pskrgag.github.io/post/sanitizer/</link><pubDate>Wed, 30 Aug 2023 00:00:00 +0000</pubDate><guid>https://pskrgag.github.io/post/sanitizer/</guid><description>Introduction In this blog post I&amp;rsquo;ll share how I wrote simple address sanitizer as LLVM pass. Since there are a lot of info about how to build and write LLVM passes, I assume reader is familiar with LLVM basics. If it is not the case, please, read [1] [2] and come back later.
+Address sanitizer Background Address sanitizer is a tool which can detect memory corruption bugs at runtime. There are 3 methods to detect memory corruption bugs at runtime:
+Software-based Hardware-based Software-based with help of hardware The easiest one to understand is software based, that relies on compiler instrumentation and runtime library.</description></item><item><title>How to fix a bug in the Linux kernel</title><link>https://pskrgag.github.io/post/test_post/</link><pubDate>Fri, 18 Mar 2022 00:00:00 +0000</pubDate><guid>https://pskrgag.github.io/post/test_post/</guid><description>Intro Since the only thing I can do is fixing random kernel bugs, I&amp;rsquo;d like to show how to understand and fix bugs reported by syzkaller by example. There are a lot of open bugs, so anyone who is looking for first contribution should try it! Most of the bugs really common, but in most cases maintainers do not have much time to fix bugs. It&amp;rsquo;s great chance to step in and join kernel community by just adding missing validation check or something
+Configuration To fix a bug in the Linux kernel you should at least download the sources. The official tree locates here and you can download it like this</description></item></channel></rss>

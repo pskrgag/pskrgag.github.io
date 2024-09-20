@@ -1,141 +1,18 @@
-<!DOCTYPE html>
-<html lang="en">
-
-<head>
-    
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
-<meta name="HandheldFriendly" content="True" />
-<meta http-equiv="X-UA-Compatible" content="IE=edge" />
-<meta http-equiv="Cache-Control" content="no-transform" />
-<meta http-equiv="Cache-Control" content="no-siteapp" />
-<meta name="generator" content="Hugo 0.82.1" />
-
-
-
-<link rel="apple-touch-icon" sizes="180x180" href="https://cdn.jsdelivr.net/gh/amzrk2/cdn-stcapi@1/favicons/apple-touch-icon.png" />
-<link rel="icon" type="image/png" sizes="32x32" href="https://cdn.jsdelivr.net/gh/amzrk2/cdn-stcapi@1/favicons/favicon-32x32.png" />
-<link rel="icon" type="image/png" sizes="16x16" href="https://cdn.jsdelivr.net/gh/amzrk2/cdn-stcapi@1/favicons/favicon-16x16.png" />
-<link rel="manifest" href="https://cdn.jsdelivr.net/gh/amzrk2/cdn-stcapi@1/favicons/site.webmanifest" />
-<link rel="mask-icon" href="https://cdn.jsdelivr.net/gh/amzrk2/cdn-stcapi@1/favicons/safari-pinned-tab.svg" color="#8aa2d3" />
-<link rel="shortcut icon" href="https://cdn.jsdelivr.net/gh/amzrk2/cdn-stcapi@1/favicons/favicon.ico" />
-<meta name="theme-color" content="#ffffff" />
-
-
-
-<title>How to fix a bug in the Linux kernel - Pavel Skripkin&#39;s blog</title>
-
-
-<meta name="author" content="Pavel Skripkin" />
-
-
-<meta name="description" content="Markdown Syntax test page" />
-
-
-<meta name="keywords" content="linux kernel" />
-
-
-<meta property="og:title" content="How to fix a bug in the Linux kernel" />
-<meta name="twitter:title" content="How to fix a bug in the Linux kernel" />
-<meta property="og:type" content="article" />
-<meta property="og:url" content="https://pskrgag.github.io/post/test_post/" /><meta property="og:description" content="Markdown Syntax test page" />
-<meta name="twitter:description" content="Markdown Syntax test page" /><meta property="og:image" content="https://pskrgag.github.io/img/og.png" />
-<meta name="twitter:card" content="summary_large_image" />
-<meta name="twitter:image" content="https://pskrgag.github.io/img/og.png" /><meta property="article:published_time" content="2020-05-11T00:00:00+00:00" /><meta property="article:modified_time" content="2020-05-11T00:00:00+00:00" />
-
-
-<style>
-    @media (prefers-color-scheme: dark) {
-        body[data-theme='auto'] img {
-            filter: brightness(60%);
-        }
-    }
-
-    body[data-theme='dark'] img {
-        filter: brightness(60%);
-    }
-</style>
-
-
-
-
-<link rel="stylesheet" href="https://pskrgag.github.io/assets/css/fuji.min.css" />
-
-
-
-
-
-
-
-
-</head>
-
-<body
-  data-theme="auto"
-  data-theme-auto='true'
-  >
-    <script data-cfasync="false">
-  
-  var fujiThemeData = localStorage.getItem('fuji_data-theme');
-  
-  if (!fujiThemeData) {
-    localStorage.setItem('fuji_data-theme', 'auto');
-  } else {
-    
-    if (fujiThemeData !== 'auto') {
-      document.body.setAttribute('data-theme', fujiThemeData === 'dark' ? 'dark' : 'light');
-    }
-  }
-</script>
-
-    <header>
-    <div class="container-lg clearfix">
-        <div class="col-12 header">
-            <a class="title-main" href="https://pskrgag.github.io/">Pavel Skripkin&#39;s blog</a>
-            
-            <span class="title-sub">Random notes from OS developer</span>
-            
-        </div>
-    </div>
-</header>
-
-    <main>
-        <div class="container-lg clearfix">
-            
-            <div class="col-12 col-md-9 float-left content">
-                
-<article>
-    
-    <h2 class="post-item post-title">
-        <a href="https://pskrgag.github.io/post/test_post/">How to fix a bug in the Linux kernel</a>
-    </h2>
-    <div class="post-item post-meta">
-        <span><i class="iconfont icon-today-sharp"></i>&nbsp;2020-05-11</span>
-
+<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1,shrink-to-fit=no"><meta name=HandheldFriendly content="True"><meta http-equiv=x-ua-compatible content="IE=edge"><meta http-equiv=cache-control content="no-transform"><meta http-equiv=cache-control content="no-siteapp"><meta name=generator content="Hugo 0.121.2"><link rel=apple-touch-icon sizes=180x180 href=https://cdn.jsdelivr.net/gh/amzrk2/cdn-stcapi@1/favicons/apple-touch-icon.png><link rel=icon type=image/png sizes=32x32 href=https://cdn.jsdelivr.net/gh/amzrk2/cdn-stcapi@1/favicons/favicon-32x32.png><link rel=icon type=image/png sizes=16x16 href=https://cdn.jsdelivr.net/gh/amzrk2/cdn-stcapi@1/favicons/favicon-16x16.png><link rel=manifest href=https://cdn.jsdelivr.net/gh/amzrk2/cdn-stcapi@1/favicons/site.webmanifest><link rel=mask-icon href=https://cdn.jsdelivr.net/gh/amzrk2/cdn-stcapi@1/favicons/safari-pinned-tab.svg color=#8aa2d3><link rel="shortcut icon" href=https://cdn.jsdelivr.net/gh/amzrk2/cdn-stcapi@1/favicons/favicon.ico><meta name=theme-color content="#ffffff"><title>How to fix a bug in the Linux kernel - Pavel Skripkin's blog</title>
+<meta name=author content="Pavel Skripkin"><meta name=description content="Markdown Syntax test page"><meta name=keywords content="linux kernel"><meta property="og:title" content="How to fix a bug in the Linux kernel"><meta name=twitter:title content="How to fix a bug in the Linux kernel"><meta property="og:type" content="article"><meta property="og:url" content="https://pskrgag.github.io/post/test_post/"><meta property="og:description" content="Markdown Syntax test page"><meta name=twitter:description content="Markdown Syntax test page"><meta property="og:image" content="https://pskrgag.github.io/img/og.png"><meta name=twitter:card content="summary_large_image"><meta name=twitter:image content="https://pskrgag.github.io/img/og.png"><meta property="article:published_time" content="2022-03-18T00:00:00+00:00"><meta property="article:modified_time" content="2022-03-18T00:00:00+00:00"><style>@media(prefers-color-scheme:dark){body[data-theme=auto] img{filter:brightness(60%)}}body[data-theme=dark] img{filter:brightness(60%)}</style><link rel=stylesheet href=https://pskrgag.github.io/assets/css/fuji.min.css></head><body data-theme=auto data-theme-auto=true><script data-cfasync=false>var fujiThemeData=localStorage.getItem("fuji_data-theme");fujiThemeData?fujiThemeData!=="auto"&&document.body.setAttribute("data-theme",fujiThemeData==="dark"?"dark":"light"):localStorage.setItem("fuji_data-theme","auto")</script><header><div class="container-lg clearfix"><div class="col-12 header"><a class=title-main href=https://pskrgag.github.io/>Pavel Skripkin's blog</a>
+<span class=title-sub>Random notes from OS developer</span></div></div></header><main><div class="container-lg clearfix"><div class="col-12 col-md-9 float-left content"><article><h2 class="post-item post-title"><a href=https://pskrgag.github.io/post/test_post/>How to fix a bug in the Linux kernel</a></h2><div class="post-item post-meta"><span><i class="iconfont icon-today-sharp"></i>&nbsp;2022-03-18</span>
 <span><i class="iconfont icon-file-tray-sharp"></i>&nbsp;2166 words</span>
-
-<span><i class="iconfont icon-pricetags-sharp"></i>&nbsp;<a href="/tags/linux-kernel">linux kernel</a>&nbsp;</span>
-
-    </div>
-    
-    <div class="post-content markdown-body">
-        <h2 id="intro">Intro</h2>
-<p>Since the only thing I can do is fixing random kernel bugs, I&rsquo;d like to show
+<span><i class="iconfont icon-pricetags-sharp"></i>&nbsp;<a href=/tags/linux-kernel>linux kernel</a>&nbsp;</span></div><div class="post-content markdown-body"><h2 id=intro>Intro</h2><p>Since the only thing I can do is fixing random kernel bugs, I&rsquo;d like to show
 how to understand and fix bugs reported by syzkaller by example.
 There are a lot of open bugs, so anyone who is
 looking for first contribution should try it! Most of the bugs really common, but in most cases
 maintainers do not have much time to fix bugs. It&rsquo;s great chance to step in and join kernel community by
-just adding missing validation check or something</p>
-<h2 id="configuration">Configuration</h2>
-<p>To fix a bug in the Linux kernel you should at least download the sources. The official tree locates
-<a href="https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git" target="_blank">here</a> and you can download it like
-this</p>
-<pre><code class="language-bash">$ git clone git://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git
-</code></pre>
-<p>Next step is configure <code>git send-email</code>. Linux kernel development process is based on plain text email.
+just adding missing validation check or something</p><h2 id=configuration>Configuration</h2><p>To fix a bug in the Linux kernel you should at least download the sources. The official tree locates
+<a href=https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git target=_blank>here</a> and you can download it like
+this</p><pre><code class=language-bash>$ git clone git://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git
+</code></pre><p>Next step is configure <code>git send-email</code>. Linux kernel development process is based on plain text email.
 No github pull requests or something. Brutal old-school emails in plain text. Add following configuration
-into your <code>~/.gitconfig</code>. Mine is for gmail accounts.</p>
-<pre><code>[sendemail]
+into your <code>~/.gitconfig</code>. Mine is for gmail accounts.</p><pre><code>[sendemail]
 	from = Name Surname &lt;email@examle.com&gt;
 	smtpserver = smtp.gmail.com
 	smtpuser = email@examle.com
@@ -143,14 +20,8 @@ into your <code>~/.gitconfig</code>. Mine is for gmail accounts.</p>
 	smtppass = [pass]
 	smtpserverport = 587
 	confirm = auto
-</code></pre>
-<p>If you use 2 factor authentication <code>smtppass</code> field should be unique app password.
-You can create it on gmail security page.</p>
-<p>Great! You have set up all needed environment.</p>
-<h2 id="example-of-bug-fixing">Example of bug fixing</h2>
-<p>For this example I took <a href="https://syzkaller.appspot.com/bug?id=f2aa6d86061f7465b5bf6e306d91f52b29051730" target="_blank">this</a> bug. It&rsquo;s very simple, but it was open for 120 days!<br>
-Let&rsquo;s take a look at the full report.</p>
-<pre><code>------------[ cut here ]------------
+</code></pre><p>If you use 2 factor authentication <code>smtppass</code> field should be unique app password.
+You can create it on gmail security page.</p><p>Great! You have set up all needed environment.</p><h2 id=example-of-bug-fixing>Example of bug fixing</h2><p>For this example I took <a href="https://syzkaller.appspot.com/bug?id=f2aa6d86061f7465b5bf6e306d91f52b29051730" target=_blank>this</a> bug. It&rsquo;s very simple, but it was open for 120 days!<br>Let&rsquo;s take a look at the full report.</p><pre><code>------------[ cut here ]------------
 WARNING: CPU: 1 PID: 3603 at drivers/i2c/i2c-core-base.c:2178 __i2c_transfer+0xa14/0x17c0 drivers/i2c/i2c-core-base.c:2178 drivers/i2c/i2c-core-base.c:2178
 Modules linked in:
 CPU: 1 PID: 3603 Comm: syz-executor029 Not tainted 5.16.0-rc5-syzkaller #0
@@ -242,15 +113,11 @@ Code disassembly (best guess):
   31:	90                   	nop
   32:	8d b4 26 00 00 00 00 	lea    0x0(%rsi,%riz,1),%esi
   39:	8d b4 26 00 00 00 00 	lea    0x0(%rsi,%riz,1),%esi
-</code></pre>
-<p>Report says there is a <code>WARN_ON</code> at drivers/i2c/i2c-core-base.c:2178. Let&rsquo;s take a look what kind of
-warning it is.</p>
-<pre><code class="language-c">	if (WARN_ON(!msgs || num &lt; 1))
+</code></pre><p>Report says there is a <code>WARN_ON</code> at drivers/i2c/i2c-core-base.c:2178. Let&rsquo;s take a look what kind of
+warning it is.</p><pre><code class=language-c>	if (WARN_ON(!msgs || num &lt; 1))
 		return -EINVAL;
-</code></pre>
-<p>Hm, looks like somebody passed wrong arguments. Where these numbers come from? This question can be
-easily answered by looking at stack trace.</p>
-<pre><code> i2c_transfer+0x1e6/0x3e0 drivers/i2c/i2c-core-base.c:2269 drivers/i2c/i2c-core-base.c:2269
+</code></pre><p>Hm, looks like somebody passed wrong arguments. Where these numbers come from? This question can be
+easily answered by looking at stack trace.</p><pre><code> i2c_transfer+0x1e6/0x3e0 drivers/i2c/i2c-core-base.c:2269 drivers/i2c/i2c-core-base.c:2269
  i2cdev_ioctl_rdwr+0x583/0x6a0 drivers/i2c/i2c-dev.c:297 drivers/i2c/i2c-dev.c:297
  compat_i2cdev_ioctl+0x419/0x4f0 drivers/i2c/i2c-dev.c:561 drivers/i2c/i2c-dev.c:561
  __do_compat_sys_ioctl+0x1c7/0x290 fs/ioctl.c:972 fs/ioctl.c:972
@@ -259,10 +126,8 @@ easily answered by looking at stack trace.</p>
  __do_fast_syscall_32+0x65/0xf0 arch/x86/entry/common.c:178 arch/x86/entry/common.c:178
  do_fast_syscall_32+0x2f/0x70 arch/x86/entry/common.c:203 arch/x86/entry/common.c:203
  entry_SYSENTER_compat_after_hwframe+0x4d/0x5c
-</code></pre>
-<p>First 6 entries are common syscall kernel path, so we can simply ignore them. Next one is <code>compat_i2cdev_ioctl</code>. This function is <code>ioctl</code> handler for <code>/dev/i2c-*</code> devices. We are not interested
-in purpose of this devices. Something related to i2c. What we really interested in is what this function does &ndash; it copies some data from user-space and pass it deeper into i2c stack.</p>
-<pre><code class="language-c">519 static long compat_i2cdev_ioctl(struct file *file, unsigned int cmd, unsigned long arg)                                                 
+</code></pre><p>First 6 entries are common syscall kernel path, so we can simply ignore them. Next one is <code>compat_i2cdev_ioctl</code>. This function is <code>ioctl</code> handler for <code>/dev/i2c-*</code> devices. We are not interested
+in purpose of this devices. Something related to i2c. What we really interested in is what this function does &ndash; it copies some data from user-space and pass it deeper into i2c stack.</p><pre><code class=language-c>519 static long compat_i2cdev_ioctl(struct file *file, unsigned int cmd, unsigned long arg)                                                 
 520 {                                
 521         struct i2c_client *client = file-&gt;private_data;
 522         unsigned long funcs;     
@@ -322,15 +187,11 @@ in purpose of this devices. Something related to i2c. What we really interested 
 576         }                        
 577 }
 
-</code></pre>
-<p>Next stack trace entry is <code>i2cdev_ioctl_rdwr</code>. From just looking at the code we can say, that reproducer
-passed <code>I2C_RDWR</code> as cmd. Take a closer look at the call</p>
-<pre><code>return i2cdev_ioctl_rdwr(client, rdwr_arg.nmsgs, rdwr_pa);
-</code></pre>
-<p><code>rdwr_arg.nmsgs</code> is user controlled value. It&rsquo;s obvious from <code>copy_from_user</code> call on line 533.
+</code></pre><p>Next stack trace entry is <code>i2cdev_ioctl_rdwr</code>. From just looking at the code we can say, that reproducer
+passed <code>I2C_RDWR</code> as cmd. Take a closer look at the call</p><pre><code>return i2cdev_ioctl_rdwr(client, rdwr_arg.nmsgs, rdwr_pa);
+</code></pre><p><code>rdwr_arg.nmsgs</code> is user controlled value. It&rsquo;s obvious from <code>copy_from_user</code> call on line 533.
 Ok, let&rsquo;s go down to stack. What does <code>i2cdev_ioctl_rdwr</code>? I won&rsquo;t copy-paste full function, I will cut it
-to very simplified form</p>
-<pre><code class="language-c">
+to very simplified form</p><pre><code class=language-c>
 static noinline int i2cdev_ioctl_rdwr(struct i2c_client *client,
 		unsigned nmsgs, struct i2c_msg *msgs)
 {
@@ -353,16 +214,11 @@ static noinline int i2cdev_ioctl_rdwr(struct i2c_client *client,
 
 	/* something else */
 }
-</code></pre>
-<p>Do you see a problem? Let&rsquo;s go back to root case of the bug. There is following warning in <code>i2c_transfer</code>.</p>
-<pre><code class="language-c">	if (WARN_ON(!msgs || num &lt; 1))
+</code></pre><p>Do you see a problem? Let&rsquo;s go back to root case of the bug. There is following warning in <code>i2c_transfer</code>.</p><pre><code class=language-c>	if (WARN_ON(!msgs || num &lt; 1))
 		return -EINVAL;
-</code></pre>
-<p>And as we discovered above <code>msgs</code> is user-controlled value. Code must validate passed arguments before
+</code></pre><p>And as we discovered above <code>msgs</code> is user-controlled value. Code must validate passed arguments before
 passing them down to i2c transfer functions. <code>compat_i2cdev_ioctl</code> check only for <code>nmsgs</code> max value,
-but not for <code>nmsgs</code> being zero.</p>
-<p>I come up with this solution</p>
-<pre><code class="language-diff">diff --git a/drivers/i2c/i2c-dev.c b/drivers/i2c/i2c-dev.c
+but not for <code>nmsgs</code> being zero.</p><p>I come up with this solution</p><pre><code class=language-diff>diff --git a/drivers/i2c/i2c-dev.c b/drivers/i2c/i2c-dev.c
 index bce0e8bb7852..cf5d049342ea 100644
 --- a/drivers/i2c/i2c-dev.c
 +++ b/drivers/i2c/i2c-dev.c
@@ -376,44 +232,24 @@ index bce0e8bb7852..cf5d049342ea 100644
                 if (rdwr_arg.nmsgs &gt; I2C_RDWR_IOCTL_MAX_MSGS)
                         return -EINVAL;
  
-</code></pre>
-<h1 id="how-to-test-your-fix">How to test your fix</h1>
-<p>The easiest way is delegate testing to syzbot. Full communication guide can
-be found <a href="https://github.com/google/syzkaller/blob/15439f1624735bde5ae3f3b66c1b964a980415b3/docs/syzbot.md" target="_blank">here</a>, but we need only one command.</p>
-<pre><code>#syz test: &lt;tree&gt; &lt;branch or commit SHA&gt;
-</code></pre>
-<p>For upstream bug use</p>
-<pre><code>#syz test git://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git master
-</code></pre>
-<p>Just send an email to mail address that can be found on bug page</p>
-<img src="/2022-03-19_00-39.png">
-<p>And attach your patch to the email (as file or as plain text). Syzbot will build the kernel and
-run reproducer for some time. If it won&rsquo;t hit any bugs you will receive <code>Reported-and-tested-by</code> tag.</p>
-<p>A bit harder way is to use <code>qemu</code>. You will need to build the kernel by yourself and it&rsquo;s topic for separate
-post.</p>
-<h1 id="how-to-format-send-your-patch">How to format send your patch</h1>
-<p>Commit your changes using</p>
-<pre><code>$ git add -u
+</code></pre><h1 id=how-to-test-your-fix>How to test your fix</h1><p>The easiest way is delegate testing to syzbot. Full communication guide can
+be found <a href=https://github.com/google/syzkaller/blob/15439f1624735bde5ae3f3b66c1b964a980415b3/docs/syzbot.md target=_blank>here</a>, but we need only one command.</p><pre><code>#syz test: &lt;tree&gt; &lt;branch or commit SHA&gt;
+</code></pre><p>For upstream bug use</p><pre><code>#syz test git://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git master
+</code></pre><p>Just send an email to mail address that can be found on bug page</p><img src=/2022-03-19_00-39.png><p>And attach your patch to the email (as file or as plain text). Syzbot will build the kernel and
+run reproducer for some time. If it won&rsquo;t hit any bugs you will receive <code>Reported-and-tested-by</code> tag.</p><p>A bit harder way is to use <code>qemu</code>. You will need to build the kernel by yourself and it&rsquo;s topic for separate
+post.</p><h1 id=how-to-format-send-your-patch>How to format send your patch</h1><p>Commit your changes using</p><pre><code>$ git add -u
 $ git commit -s
-</code></pre>
-<p><code>-s</code> is important! This argument automatically adds <code>Signed-off-by</code> with your email and name to commit log.
+</code></pre><p><code>-s</code> is important! This argument automatically adds <code>Signed-off-by</code> with your email and name to commit log.
 Patches w/o <code>Signed-off-by</code> tag will be automatically rejected. It doesn&rsquo;t
-matter if change is correct or not. 1st line is the subject of your patch. The format is following:</p>
-<pre><code>&lt;subsystem name&gt;: [&lt;subsystem part if present&gt;:] &lt;short description of the change&gt;
-</code></pre>
-<p>For this example:</p>
-<pre><code>i2c: validate user data in compat ioctl
-</code></pre>
-<p>The bug itself is in i2c core, so there is no need in specifying subsystem part. Subject line should be
+matter if change is correct or not. 1st line is the subject of your patch. The format is following:</p><pre><code>&lt;subsystem name&gt;: [&lt;subsystem part if present&gt;:] &lt;short description of the change&gt;
+</code></pre><p>For this example:</p><pre><code>i2c: validate user data in compat ioctl
+</code></pre><p>The bug itself is in i2c core, so there is no need in specifying subsystem part. Subject line should be
 less than 75 characters in length, but it&rsquo;s not strict rule. The main rule is &ndash; subject must be small and
 should describe the change. Put blank line after the subject line and describe the change in more details.
 Add why this change is needed, what&rsquo;s the root case and how you have fixed it. You can add anything
 you feel related to the patch. Put blank line after commit message and before tags. It makes patches
 look more nice. Do not forget to add <code>Reported-by</code> tag from bug page or <code>Reported-and-tested-by</code> received
-from syzbot</p>
-<img src="/2022-03-19_00-39.png">
-<p>Example patch message</p>
-<pre><code>    i2c: validate user data in compat ioctl	&lt;- Subject line
+from syzbot</p><img src=/2022-03-19_00-39.png><p>Example patch message</p><pre><code>    i2c: validate user data in compat ioctl	&lt;- Subject line
 						&lt;- Blank line before commit message
     Wrong user data may cause warning in i2c_transfer(), ex: zero msgs.
     Userspace should not be able to trigger warnings, so this patch adds
@@ -423,19 +259,14 @@ from syzbot</p>
     Reported-and-tested-by: syzbot+e417648b303855b91d8a@syzkaller.appspotmail.com
     Fixes: 7d5cb45655f2 (&quot;i2c compat ioctls: move to -&gt;compat_ioctl()&quot;)
     Signed-off-by: Pavel Skripkin &lt;paskripkin@gmail.com&gt;
-</code></pre>
-<p>FWIW, commit message itself should be formatted to 75 chars per line. Some maintainers might get mad at
-you for wrong formatting. The full guide for submitting patches can be found <a href="https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/Documentation/process/submitting-patches.rst" target="_blank">here</a>.</p>
-<p>Ok, your patch is formatted in your local tree. How to post it to mailing lists? First of all use</p>
-<pre><code>$ git format-patch HEAD~
+</code></pre><p>FWIW, commit message itself should be formatted to 75 chars per line. Some maintainers might get mad at
+you for wrong formatting. The full guide for submitting patches can be found <a href=https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/Documentation/process/submitting-patches.rst target=_blank>here</a>.</p><p>Ok, your patch is formatted in your local tree. How to post it to mailing lists? First of all use</p><pre><code>$ git format-patch HEAD~
 0001-i2c-validate-user-data-in-compat-ioctl.patch
 $ 
-</code></pre>
-<p>command. It will create formatted patch email which you can send using <code>git send-email</code> command.
+</code></pre><p>command. It will create formatted patch email which you can send using <code>git send-email</code> command.
 Do not hurry with sending it. Smart kernel developers created a script for finding common mistakes in
 patches. Do not forget to use it <em>before</em> posting a patch. Simply run this command from kernel root
-directory</p>
-<pre><code>$ ./scripts/checkpatch.pl 0001-i2c-validate-user-data-in-compat-ioctl.patch
+directory</p><pre><code>$ ./scripts/checkpatch.pl 0001-i2c-validate-user-data-in-compat-ioctl.patch
 WARNING: Possible unwrapped commit description (prefer a maximum 75 chars per line)
 #11: 
 Reported-and-tested-by: syzbot+e417648b303855b91d8a@syzkaller.appspotmail.com
@@ -449,190 +280,29 @@ NOTE: For some of the reported defects, checkpatch may be able to
 
 NOTE: If any of the errors are false positives, please report
       them to the maintainer, see CHECKPATCH in MAINTAINERS.
-</code></pre>
-<p>There is one warning. It can be ignored, because tags <em>must</em> be one-liners. So looks like our patch is
+</code></pre><p>There is one warning. It can be ignored, because tags <em>must</em> be one-liners. So looks like our patch is
 ready for submittion. The last thing we need the list of people interested in our change. There is also
-a script for that. It&rsquo;s called <code>get_maintainer.pl</code>. Example of usage:</p>
-<pre><code class="language-bash">$ ./scripts/get_maintainer.pl 0001-i2c-validate-user-data-in-compat-ioctl.patch 
+a script for that. It&rsquo;s called <code>get_maintainer.pl</code>. Example of usage:</p><pre><code class=language-bash>$ ./scripts/get_maintainer.pl 0001-i2c-validate-user-data-in-compat-ioctl.patch 
 Wolfram Sang &lt;wsa@kernel.org&gt; (maintainer:I2C SUBSYSTEM)
 Al Viro &lt;viro@zeniv.linux.org.uk&gt; (blamed_fixes:1/1=100%)
 linux-i2c@vger.kernel.org (open list:I2C SUBSYSTEM)
 linux-kernel@vger.kernel.org (open list)
-</code></pre>
-<p>Not so many people&hellip; And the last step is send the patch. Just put all needed emails in <code>git send-email</code>
-arguments and press enter. Like this</p>
-<pre><code class="language-bash">$ git send-email \
+</code></pre><p>Not so many people&mldr; And the last step is send the patch. Just put all needed emails in <code>git send-email</code>
+arguments and press enter. Like this</p><pre><code class=language-bash>$ git send-email \
 &gt; --to=wsa@kernel.org \
 &gt; --to=viro@zeniv.linux.org.uk \
 &gt; --cc=linux-i2c@vger.kernel.org \
 &gt; --cc=linux-kernel@vger.kernel.org \
 &gt; 0001-i2c-validate-user-data-in-compat-ioctl.patch
-</code></pre>
-<p>You can check <code>https://lore.kernel.org/</code> to see if patch reached the lists. Mine can be found <a href="https://lore.kernel.org/all/20211230224750.15380-1-paskripkin@gmail.com/" target="_blank">here</a>. If your patch reached the lists then you
+</code></pre><p>You can check <code>https://lore.kernel.org/</code> to see if patch reached the lists. Mine can be found <a href=https://lore.kernel.org/all/20211230224750.15380-1-paskripkin@gmail.com/ target=_blank>here</a>. If your patch reached the lists then you
 just need to sit down and relax. Sometimes maintainers reply within a day, but average waiting time
-for a feedback is 7-8 days. Don&rsquo;t hurry, maintainers are very busy people, so no need to rush.</p>
-<p>Good luck in bug fixing and thanks for reading!</p>
-
-    </div>
-</article>
-
-
-
-
-            </div>
-            <aside class="col-12 col-md-3 float-left sidebar">
-    
-    <div class="sidebar-item sidebar-pages">
-        <h3>Pages</h3>
-        <ul>
-            
-            <li>
-                <a href="/">Home</a>
-            </li>
-            
-            <li>
-                <a href="/about/">About</a>
-            </li>
-            
-        </ul>
-    </div>
-    
-    <div class="sidebar-item sidebar-links">
-        <h3>Links</h3>
-        <ul>
-            
-            <li>
-                <a href="https://github.com/pskrgag" target="_blank"><span>GitHub</span></a>
-            </li>
-            
-            <li>
-                <a href="https://www.linkedin.com/in/pskrgag/" target="_blank"><span>Linkedin</span></a>
-            </li>
-            
-        </ul>
-    </div>
-    
-    <div class="sidebar-item sidebar-tags">
-        <h3>Tags</h3>
-        <div>
-            
-            <span>
-                <a href="/tags/linux-kernel/">linux kernel</a>
-            </span>
-            
-        </div>
-    </div>
-    <div class="sidebar-item sidebar-toc">
-        <h3>Table of Contents</h3><nav id="TableOfContents">
-  <ul>
-    <li><a href="#intro">Intro</a></li>
-    <li><a href="#configuration">Configuration</a></li>
-    <li><a href="#example-of-bug-fixing">Example of bug fixing</a></li>
-  </ul>
-</nav></div>
-</aside>
-
-        </div>
-        <div class="btn">
-    <div class="btn-menu" id="btn-menu">
-        <i class="iconfont icon-grid-sharp"></i>
-    </div>
-    <div class="btn-toggle-mode">
-        <i class="iconfont icon-contrast-sharp"></i>
-    </div>
-    <div class="btn-scroll-top">
-        <i class="iconfont icon-chevron-up-circle-sharp"></i>
-    </div>
-</div>
-<aside class="sidebar-mobile" style="display: none;">
-  <div class="sidebar-wrapper">
-    
-    <div class="sidebar-item sidebar-pages">
-        <h3>Pages</h3>
-        <ul>
-            
-            <li>
-                <a href="/">Home</a>
-            </li>
-            
-            <li>
-                <a href="/about/">About</a>
-            </li>
-            
-        </ul>
-    </div>
-    
-    <div class="sidebar-item sidebar-links">
-        <h3>Links</h3>
-        <ul>
-            
-            <li>
-                <a href="https://github.com/pskrgag" target="_blank"><span>GitHub</span></a>
-            </li>
-            
-            <li>
-                <a href="https://www.linkedin.com/in/pskrgag/" target="_blank"><span>Linkedin</span></a>
-            </li>
-            
-        </ul>
-    </div>
-    
-    <div class="sidebar-item sidebar-tags">
-        <h3>Tags</h3>
-        <div>
-            
-            <span>
-                <a href="/tags/linux-kernel/">linux kernel</a>
-            </span>
-            
-        </div>
-    </div>
-    
-    
-    
-    <div class="sidebar-item sidebar-toc">
-        <h3>Table of Contents</h3>
-        <nav id="TableOfContents">
-  <ul>
-    <li><a href="#intro">Intro</a></li>
-    <li><a href="#configuration">Configuration</a></li>
-    <li><a href="#example-of-bug-fixing">Example of bug fixing</a></li>
-  </ul>
-</nav>
-    </div>
-    
-    
-  </div>
-</aside>
-    </main>
-
-    <footer>
-    <div class="container-lg clearfix">
-        <div class="col-12 footer">
-            
-            <span>&copy; 2020-2022
-                <a href="https://pskrgag.github.io/">Pavel Skripkin</a>
-                 | <a href="https://github.com/pskrgag/pskrgag.github.io">Source code</a> 
-                | Powered by <a href="https://github.com/dsrkafuu/hugo-theme-fuji/"
-                   target="_blank">Fuji-v2</a> &amp; <a href="https://gohugo.io/"
-                                                    target="_blank">Hugo</a> 
-            </span>
-        </div>
-    </div>
-</footer>
-
-    
-<script defer src="https://cdn.jsdelivr.net/npm/medium-zoom@1.0.6/dist/medium-zoom.min.js"></script>
-<script defer src="https://cdn.jsdelivr.net/npm/lazysizes@5.3.2/lazysizes.min.js"></script>
-<script defer src="https://cdn.jsdelivr.net/npm/prismjs@1.27.0/components/prism-core.min.js"></script>
-<script defer src="https://cdn.jsdelivr.net/npm/prismjs@1.27.0/plugins/autoloader/prism-autoloader.min.js"></script>
-
-
-
-<script defer src="/assets/js/fuji.min.js"></script>
-
-
-
-</body>
-
-</html>
+for a feedback is 7-8 days. Don&rsquo;t hurry, maintainers are very busy people, so no need to rush.</p><p>Good luck in bug fixing and thanks for reading!</p></div></article></div><aside class="col-12 col-md-3 float-left sidebar"><div class="sidebar-item sidebar-pages"><h3>Pages</h3><ul><li><a href=/>Home</a></li><li><a href=/about/>About</a></li></ul></div><div class="sidebar-item sidebar-links"><h3>Links</h3><ul><li><a href=https://github.com/pskrgag target=_blank><span>GitHub</span></a></li><li><a href=https://www.linkedin.com/in/pskrgag/ target=_blank><span>Linkedin</span></a></li></ul></div><div class="sidebar-item sidebar-tags"><h3>Tags</h3><div><span><a href=/tags/haskell/>haskell</a>
+</span><span><a href=/tags/linux-kernel/>linux kernel</a>
+</span><span><a href=/tags/llvm/>llvm</a>
+</span><span><a href=/tags/parsing/>parsing</a></span></div></div><div class="sidebar-item sidebar-toc"><h3>Table of Contents</h3><nav id=TableOfContents><ul><li><a href=#intro>Intro</a></li><li><a href=#configuration>Configuration</a></li><li><a href=#example-of-bug-fixing>Example of bug fixing</a></li></ul></nav></div></aside></div><div class=btn><div class=btn-menu id=btn-menu><i class="iconfont icon-grid-sharp"></i></div><div class=btn-toggle-mode><i class="iconfont icon-contrast-sharp"></i></div><div class=btn-scroll-top><i class="iconfont icon-chevron-up-circle-sharp"></i></div></div><aside class=sidebar-mobile style=display:none><div class=sidebar-wrapper><div class="sidebar-item sidebar-pages"><h3>Pages</h3><ul><li><a href=/>Home</a></li><li><a href=/about/>About</a></li></ul></div><div class="sidebar-item sidebar-links"><h3>Links</h3><ul><li><a href=https://github.com/pskrgag target=_blank><span>GitHub</span></a></li><li><a href=https://www.linkedin.com/in/pskrgag/ target=_blank><span>Linkedin</span></a></li></ul></div><div class="sidebar-item sidebar-tags"><h3>Tags</h3><div><span><a href=/tags/haskell/>haskell</a>
+</span><span><a href=/tags/linux-kernel/>linux kernel</a>
+</span><span><a href=/tags/llvm/>llvm</a>
+</span><span><a href=/tags/parsing/>parsing</a></span></div></div><div class="sidebar-item sidebar-toc"><h3>Table of Contents</h3><nav id=TableOfContents><ul><li><a href=#intro>Intro</a></li><li><a href=#configuration>Configuration</a></li><li><a href=#example-of-bug-fixing>Example of bug fixing</a></li></ul></nav></div></div></aside></main><footer><div class="container-lg clearfix"><div class="col-12 footer"><span>&copy; 2020-2024
+<a href=https://pskrgag.github.io/>Pavel Skripkin</a>
+| <a href=https://github.com/pskrgag/pskrgag.github.io>Source code</a>
+| Powered by <a href=https://github.com/dsrkafuu/hugo-theme-fuji/ target=_blank>Fuji-v2</a> & <a href=https://gohugo.io/ target=_blank>Hugo</a></span></div></div></footer><script defer src=https://cdn.jsdelivr.net/npm/medium-zoom@1.0.6/dist/medium-zoom.min.js></script><script defer src=https://cdn.jsdelivr.net/npm/lazysizes@5.3.2/lazysizes.min.js></script><script defer src=https://cdn.jsdelivr.net/npm/prismjs@1.27.0/components/prism-core.min.js></script><script defer src=https://cdn.jsdelivr.net/npm/prismjs@1.27.0/plugins/autoloader/prism-autoloader.min.js></script><script defer src=/assets/js/fuji.min.js></script></body></html>
