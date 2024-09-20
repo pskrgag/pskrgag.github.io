@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Parsing on Pavel Skripkin's blog</title><link>https://pskrgag.github.io/tags/parsing/</link><description>Recent content in Parsing on Pavel Skripkin's blog</description><generator>Hugo</generator><language>en</language><lastBuildDate>Fri, 10 May 2024 00:00:00 +0000</lastBuildDate><atom:link href="https://pskrgag.github.io/tags/parsing/index.xml" rel="self" type="application/rss+xml"/><item><title>Subset of JSON parser in 150 lines of Haskell code</title><link>https://pskrgag.github.io/post/json/</link><pubDate>Fri, 10 May 2024 00:00:00 +0000</pubDate><guid>https://pskrgag.github.io/post/json/</guid><description>&lt;h2 id="intro">Intro&lt;/h2>
+&lt;p>Recently I have started to learn Haskell at my spare time by solving &lt;a href="https://www.codewars.com/dashboard" target="_blank">codewars&lt;/a> problems
+time-to-time. This post is about my solution for &lt;a href="https://www.codewars.com/kata/55aa170b54c32468c30000a9" target="_blank">this kata&lt;/a>, since I was
+impressed by power of applicative parsing and want to document things I have learned during solving.&lt;/p>
+&lt;p>NOTE: I am no way an expert in Haskell or FP languages, so my solution might be not the best/cleanest/etc.&lt;/p>
+&lt;h2 id="the-task">The task&lt;/h2>
+&lt;p>The task is simple: implement a parser for a subset of JSON. The only big difference from real json is no support for exponential
+numbers and unicode characters.&lt;/p>
+&lt;p>Language task suggest to implement has following (BNF)[https://en.wikipedia.org/wiki/Backus%E2%80%93Naur_form]:&lt;/p></description></item></channel></rss>
