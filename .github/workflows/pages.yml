@@ -21,6 +21,7 @@ jobs:
        hugo-version: 'latest'
  
    - name: Build
+     run: cd themes/fuji; git apply ../0001-update-theme.patch; cd -
      run: hugo  --minify
  
    - name: Deploy

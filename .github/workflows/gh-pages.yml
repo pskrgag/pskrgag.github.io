@@ -24,7 +24,7 @@ jobs:
           extended: true
 
       - name: Build
-        run: hugo --minify
+        run: cd themes/fuji; git apply ../0001-update-theme.patch; cd -; hugo --minify
 
       - name: Deploy
         uses: peaceiris/actions-gh-pages@v3
