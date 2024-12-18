@@ -22,4 +22,6 @@ linkedin: [pskrgag](https://www.linkedin.com/in/pskrgag/)
 [Linux kernel](https://git.kernel.org/pub/scm/linux/kernel/git/next/linux-next.git/log/?qt=grep&q=paskripkin) \
 [Smatch](https://repo.or.cz/smatch.git?a=search&h=HEAD&st=commit&s=paskripkin&.cgifields=sr) \
 [syzkaller](https://github.com/google/syzkaller/commits?author=pskrgag)
+[llvm](https://github.com/llvm/llvm-project/commits?author=pskrgag)
+[qemu](https://github.com/qemu/qemu/commits?author=pskrgag)
 <br/><br/>
