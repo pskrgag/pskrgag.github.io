@@ -1,0 +1,80 @@
+<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1,shrink-to-fit=no"><meta name=HandheldFriendly content="True"><meta http-equiv=X-UA-Compatible content="IE=edge"><meta http-equiv=Cache-Control content="no-transform"><meta http-equiv=Cache-Control content="no-siteapp"><meta name=generator content="Hugo 0.140.2"><link rel=apple-touch-icon sizes=180x180 href=https://cdn.jsdelivr.net/gh/amzrk2/cdn-stcapi@1/favicons/apple-touch-icon.png><link rel=icon type=image/png sizes=32x32 href=https://cdn.jsdelivr.net/gh/amzrk2/cdn-stcapi@1/favicons/favicon-32x32.png><link rel=icon type=image/png sizes=16x16 href=https://cdn.jsdelivr.net/gh/amzrk2/cdn-stcapi@1/favicons/favicon-16x16.png><link rel=manifest href=https://cdn.jsdelivr.net/gh/amzrk2/cdn-stcapi@1/favicons/site.webmanifest><link rel=mask-icon href=https://cdn.jsdelivr.net/gh/amzrk2/cdn-stcapi@1/favicons/safari-pinned-tab.svg color=#8aa2d3><link rel="shortcut icon" href=https://cdn.jsdelivr.net/gh/amzrk2/cdn-stcapi@1/favicons/favicon.ico><meta name=theme-color content="#ffffff"><title>Understanding Vyukov MPMC ring buffer - Pavel Skripkin's blog</title>
+<meta name=author content="Pavel Skripkin"><meta name=description content="Markdown Syntax test page"><meta name=keywords content="concurrency"><meta property="og:title" content="Understanding Vyukov MPMC ring buffer"><meta name=twitter:title content="Understanding Vyukov MPMC ring buffer"><meta property="og:type" content="article"><meta property="og:url" content="https://pskrgag.github.io/post/mpmc_vuykov/"><meta property="og:description" content="Markdown Syntax test page"><meta name=twitter:description content="Markdown Syntax test page"><meta property="og:image" content="https://pskrgag.github.io/img/og.png"><meta name=twitter:card content="summary_large_image"><meta name=twitter:image content="https://pskrgag.github.io/img/og.png"><meta property="article:published_time" content="2024-01-24T00:00:00+00:00"><meta property="article:modified_time" content="2024-01-24T00:00:00+00:00"><style>@media(prefers-color-scheme:dark){body[data-theme=auto] img{filter:brightness(60%)}}body[data-theme=dark] img{filter:brightness(60%)}</style><link rel=stylesheet href=https://pskrgag.github.io/assets/css/fuji.min.css></head><body data-theme=auto data-theme-auto=true><script data-cfasync=false>var fujiThemeData=localStorage.getItem("fuji_data-theme");fujiThemeData?fujiThemeData!=="auto"&&document.body.setAttribute("data-theme",fujiThemeData==="dark"?"dark":"light"):localStorage.setItem("fuji_data-theme","auto")</script><header><div class="container-lg clearfix"><div class="col-12 header"><a class=title-main href=https://pskrgag.github.io/>Pavel Skripkin's blog</a>
+<span class=title-sub>Random notes from OS developer</span></div></div></header><main><div class="container-lg clearfix"><div class="col-12 col-md-9 float-left content"><article><h2 class="post-item post-title"><a href=https://pskrgag.github.io/post/mpmc_vuykov/>Understanding Vyukov MPMC ring buffer</a></h2><div class="post-item post-meta"><span><i class="iconfont icon-today-sharp"></i>&nbsp;2024-01-24</span>
+<span><i class="iconfont icon-file-tray-sharp"></i>&nbsp;601 words</span>
+<span><i class="iconfont icon-pricetags-sharp"></i>&nbsp;<a href=/tags/concurrency>concurrency</a>&nbsp;</span></div><div class="post-content markdown-body"><h2 id=intro>Intro</h2><p>Recently I had to create a simple MPMC ring buffer for inter-cpu communication based on shared memory between them.
+For simplicity let&rsquo;s imagine N threads, which share same buffer and exchange messages of the fixed size. Quick search in known
+concurrency-related blogs showed me very simple ring buffer by <a href=https://www.1024cores.net/home/lock-free-algorithms/queues/bounded-mpmc-queue target=_blank>Dmitry Vyukov</a>.</p><p>In this blog post I will summarize how it works.</p><h2 id=bounded-mpmc-queue>Bounded MPMC Queue</h2><p>MPMC stands for multi-producer and multi-consumer queue, which means that queue support multiply concurrent readers and writers while reversing
+consistency. Bounded means that queue can hold only fixed number of messages. If queue is full, then push will fail.</p><p>Dmitry&rsquo;s design uses fixed array of structures called cells:</p><p>(I am using C-ish pseudo-code, not a real language)</p><pre><code class=language-c>struct Cell&lt;T&gt; {
+    atomic&lt;size_t&gt; sequence_number;
+    T data;
+};
+</code></pre><p>Queue itself contains classical head, tail and number of elements. For performance reasons size of the array should be power of 2. This causes module operation like
+<code>idx % size</code> to compile into single <code>and</code> instruction.</p><pre><code class=language-c>struct Queue&lt;T&gt; {
+    Cell *data;
+    atomic&lt;size_t&gt; head;
+    atomic&lt;size_t&gt; tail;
+    size_t size_mask;
+};
+</code></pre><h3 id=initialization>Initialization</h3><p>During construction each cell is initialized with <code>sequence_number</code> equal to it&rsquo;s position index.</p><pre><code class=language-c>    for (size_t i = 0; i &lt; num_elements; ++i)
+        atomic_store_explicit(&amp;queue-&gt;data[i].seq, i, __ATOMIC_RELAXED);
+</code></pre><p><code>head</code> and <code>tail</code> indexes are initialized to 0.</p><p>In memory this looks like (for simplicity let&rsquo;s take array size equal to 2)</p><pre><code>+---+   +---+
+| 0 | - | 1 |
++---+   +---+
+
+head = 0;
+tail = 0;
+</code></pre><h3 id=pushing>Pushing</h3><p>Push is only possible if <code>data[head].sequence_number</code> is equal to <code>head</code>. On successful push, <code>head</code> and <code>sequence_number</code> indexes are incremented.
+However if they are not equal there are 2 possible cases:</p><ol><li><code>head</code> > <code>sequence_number</code>. In such case queue is simply full. Let&rsquo;s take an example from image above. If we push 2 elements queue will have following state:</li></ol><pre><code>+---+   +---+
+| 1 | - | 2 |
++---+   +---+
+
+head = 2;
+tail = 0;
+</code></pre><ol start=2><li>If <code>head</code> &lt; <code>sequence_number</code>. Such case means push contention and we need to retry. This could happen in following case:</li></ol><pre><code>                CPU0                                CPU1
+
+x0 = read_head()                               x0 = read_head()
+x1 = read_seq_number()
+if (x0 == x1)   // EQUALS
+   cas(seq, seq, seq + 1)
+                                               x1 = read_seq_number()
+                                               // CPU0 has just updated sequence_number, while x0 hold
+                                               // old head index
+                                               if (x0 &lt; head)
+                                                  &lt;retry&gt;
+</code></pre><h3 id=popping>Popping</h3><p>Pop is only possible if <code>data[tail].sequence_number</code> is equal to <code>tail + 1</code>. This +1 comes from push, since successful push increments
+sequence number. On successful pop, <code>tail</code> is incremented, while <code>sequence_number</code> is assigned to value <code>tail + array_size</code>. This step sets
+sequence_number equal to suitalbe <code>head</code> for pushing. In general it&rsquo;s the next number <code>N</code> that satisfies <code>i = N MOD array_size</code>, where <code>i</code> is
+an array index.</p><p>However if they are not equal there are also 2 possible cases:</p><ol><li><code>tail + 1</code> > <code>sequence_number</code>. Such case means that queue is empty.</li></ol><p>Let&rsquo;s again see some pictures</p><p>Empty queue:</p><pre><code>+---+   +---+
+| 0 | - | 1 |
++---+   +---+
+
+head = 0;
+tail = 0;
+</code></pre><p>Pop is not possible, since <code>data[tail].sequence_number + 1 > pos</code>.</p><p>Queue with 1 element:</p><pre><code>+---+   +---+
+| 1 | - | 1 |
++---+   +---+
+
+head = 1;
+tail = 0;
+</code></pre><p>Now we can pop, since <code>sequence_number</code> is equal to 1.</p><ol start=2><li><code>tail + 1</code> &lt; <code>sequence_number</code>. This case indicates contention on pop alike in push case</li></ol><pre><code>                CPU0                                CPU1
+
+x0 = read_tail()                               x0 = read_tail()
+x1 = read_seq_number()
+if (x0 + 1 == x1)   // EQUALS
+   cas(seq, seq, seq + 1 + array_size)
+                                               x1 = read_seq_number()
+                                               // CPU0 has just updated sequence_number, while x0 hold
+                                               // old tail index
+                                               if (x0 &lt; head)
+                                                  &lt;retry&gt;
+</code></pre></div></article></div><aside class="col-12 col-md-3 float-left sidebar"><div class="sidebar-item sidebar-pages"><h3>Pages</h3><ul><li><a href=/>Home</a></li><li><a href=/about/>About</a></li></ul></div><div class="sidebar-item sidebar-links"><h3>Links</h3><ul><li><a href=https://github.com/pskrgag target=_blank><span>GitHub</span></a></li><li><a href=https://www.linkedin.com/in/pskrgag/ target=_blank><span>Linkedin</span></a></li></ul></div><div class="sidebar-item sidebar-tags"><h3>Tags</h3><div><span><a href=/tags/concurrency/>Concurrency</a>
+</span><span><a href=/tags/haskell/>Haskell</a>
+</span><span><a href=/tags/linux-kernel/>Linux Kernel</a>
+</span><span><a href=/tags/parsing/>Parsing</a></span></div></div><div class="sidebar-item sidebar-toc"><h3>Table of Contents</h3><nav id=TableOfContents><ul><li><a href=#intro>Intro</a></li><li><a href=#bounded-mpmc-queue>Bounded MPMC Queue</a><ul><li><a href=#initialization>Initialization</a></li><li><a href=#pushing>Pushing</a></li><li><a href=#popping>Popping</a></li></ul></li></ul></nav></div></aside></div><div class=btn><div class=btn-menu id=btn-menu><i class="iconfont icon-grid-sharp"></i></div><div class=btn-toggle-mode><i class="iconfont icon-contrast-sharp"></i></div><div class=btn-scroll-top><i class="iconfont icon-chevron-up-circle-sharp"></i></div></div><aside class=sidebar-mobile style=display:none><div class=sidebar-wrapper><div class="sidebar-item sidebar-pages"><h3>Pages</h3><ul><li><a href=/>Home</a></li><li><a href=/about/>About</a></li></ul></div><div class="sidebar-item sidebar-links"><h3>Links</h3><ul><li><a href=https://github.com/pskrgag target=_blank><span>GitHub</span></a></li><li><a href=https://www.linkedin.com/in/pskrgag/ target=_blank><span>Linkedin</span></a></li></ul></div><div class="sidebar-item sidebar-tags"><h3>Tags</h3><div><span><a href=/tags/concurrency/>Concurrency</a>
+</span><span><a href=/tags/haskell/>Haskell</a>
+</span><span><a href=/tags/linux-kernel/>Linux Kernel</a>
+</span><span><a href=/tags/parsing/>Parsing</a></span></div></div><div class="sidebar-item sidebar-toc"><h3>Table of Contents</h3><nav id=TableOfContents><ul><li><a href=#intro>Intro</a></li><li><a href=#bounded-mpmc-queue>Bounded MPMC Queue</a><ul><li><a href=#initialization>Initialization</a></li><li><a href=#pushing>Pushing</a></li><li><a href=#popping>Popping</a></li></ul></li></ul></nav></div></div></aside></main><footer><div class="container-lg clearfix"><div class="col-12 footer"><span>&copy; 2020-2025
+<a href=https://pskrgag.github.io/>Pavel Skripkin</a>
+| <a href=https://github.com/pskrgag/pskrgag.github.io>Source code</a>
+| Powered by <a href=https://github.com/dsrkafuu/hugo-theme-fuji/ target=_blank>Fuji-v2</a> & <a href=https://gohugo.io/ target=_blank>Hugo</a></span></div></div></footer><script defer src=https://cdn.jsdelivr.net/npm/medium-zoom@1.0.6/dist/medium-zoom.min.js></script><script defer src=https://cdn.jsdelivr.net/npm/lazysizes@5.3.2/lazysizes.min.js></script><script defer src=https://cdn.jsdelivr.net/npm/prismjs@1.27.0/components/prism-core.min.js></script><script defer src=https://cdn.jsdelivr.net/npm/prismjs@1.27.0/plugins/autoloader/prism-autoloader.min.js></script><script defer src=/assets/js/fuji.min.js></script></body></html>
