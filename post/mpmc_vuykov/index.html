@@ -40,7 +40,7 @@ if (x0 == x1)   // EQUALS
                                                x1 = read_seq_number()
                                                // CPU0 has just updated sequence_number, while x0 hold
                                                // old head index
-                                               if (x0 &lt; head)
+                                               if (x0 &lt; x1)
                                                   &lt;retry&gt;
 </code></pre><h3 id=popping>Popping</h3><p>Pop is only possible if <code>data[tail].sequence_number</code> is equal to <code>tail + 1</code>. This +1 comes from push, since successful push increments
 sequence number. On successful pop, <code>tail</code> is incremented, while <code>sequence_number</code> is assigned to value <code>tail + array_size</code>. This step sets
@@ -62,11 +62,11 @@ tail = 0;
 x0 = read_tail()                               x0 = read_tail()
 x1 = read_seq_number()
 if (x0 + 1 == x1)   // EQUALS
-   cas(seq, seq, seq + 1 + array_size)
+   cas(seq, seq, seq + array_size)
                                                x1 = read_seq_number()
                                                // CPU0 has just updated sequence_number, while x0 hold
                                                // old tail index
-                                               if (x0 &lt; head)
+                                               if (x0 + 1 &lt; x1)
                                                   &lt;retry&gt;
 </code></pre></div></article></div><aside class="col-12 col-md-3 float-left sidebar"><div class="sidebar-item sidebar-pages"><h3>Pages</h3><ul><li><a href=/>Home</a></li><li><a href=/about/>About</a></li></ul></div><div class="sidebar-item sidebar-links"><h3>Links</h3><ul><li><a href=https://github.com/pskrgag target=_blank><span>GitHub</span></a></li><li><a href=https://www.linkedin.com/in/pskrgag/ target=_blank><span>Linkedin</span></a></li></ul></div><div class="sidebar-item sidebar-tags"><h3>Tags</h3><div><span><a href=/tags/concurrency/>Concurrency</a>
 </span><span><a href=/tags/haskell/>Haskell</a>
