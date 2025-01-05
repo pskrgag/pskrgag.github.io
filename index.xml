@@ -6,14 +6,7 @@ impressed by power of applicative parsing and want to document things I have lea
 &lt;h2 id="the-task">The task&lt;/h2>
 &lt;p>The task is simple: implement a parser for a subset of JSON. The only big difference from real json is no support for exponential
 numbers and unicode characters.&lt;/p>
-&lt;p>Language task suggest to implement has following (BNF)[https://en.wikipedia.org/wiki/Backus%E2%80%93Naur_form]:&lt;/p></description></item><item><title>Understanding Vyukov MPMC ring buffer</title><link>https://pskrgag.github.io/post/mpmc_vuykov/</link><pubDate>Wed, 24 Jan 2024 00:00:00 +0000</pubDate><guid>https://pskrgag.github.io/post/mpmc_vuykov/</guid><description>&lt;h2 id="intro">Intro&lt;/h2>
-&lt;p>Recently I had to create a simple MPMC ring buffer for inter-cpu communication based on shared memory between them.
-For simplicity let&amp;rsquo;s imagine N threads, which share same buffer and exchange messages of the fixed size. Quick search in known
-concurrency-related blogs showed me very simple ring buffer by &lt;a href="https://www.1024cores.net/home/lock-free-algorithms/queues/bounded-mpmc-queue" target="_blank">Dmitry Vyukov&lt;/a>.&lt;/p>
-&lt;p>In this blog post I will summarize how it works.&lt;/p>
-&lt;h2 id="bounded-mpmc-queue">Bounded MPMC Queue&lt;/h2>
-&lt;p>MPMC stands for multi-producer and multi-consumer queue, which means that queue support multiply concurrent readers and writers while reversing
-consistency. Bounded means that queue can hold only fixed number of messages. If queue is full, then push will fail.&lt;/p></description></item><item><title>How to fix a bug in the Linux kernel</title><link>https://pskrgag.github.io/post/test_post/</link><pubDate>Fri, 18 Mar 2022 00:00:00 +0000</pubDate><guid>https://pskrgag.github.io/post/test_post/</guid><description>&lt;h2 id="intro">Intro&lt;/h2>
+&lt;p>Language task suggest to implement has following (BNF)[https://en.wikipedia.org/wiki/Backus%E2%80%93Naur_form]:&lt;/p></description></item><item><title>How to fix a bug in the Linux kernel</title><link>https://pskrgag.github.io/post/test_post/</link><pubDate>Fri, 18 Mar 2022 00:00:00 +0000</pubDate><guid>https://pskrgag.github.io/post/test_post/</guid><description>&lt;h2 id="intro">Intro&lt;/h2>
 &lt;p>Since the only thing I can do is fixing random kernel bugs, I&amp;rsquo;d like to show
 how to understand and fix bugs reported by syzkaller by example.
 There are a lot of open bugs, so anyone who is
