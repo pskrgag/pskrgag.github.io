@@ -1,128 +1,19 @@
-baseURL = "https://pskrgag.github.io/"
-title = "Pavel Skripkin's blog"
+# The URL the site will be built for
+base_url = "https://pskrgag.github.io/"
 
-theme = "fuji"
-hasCJKLanguage = true
-enableEmoji = true
-enableRobotsTXT = true
-disableKinds = ["taxonomy"]
-ignoreErrors = ["error-disable-taxonomy"]
+# Whether to automatically compile all Sass files in the sass directory
+compile_sass = true
 
-## Change this two to switch between different language
-languageCode = "en"           # For RSS, view https://www.rssboard.org/rss-language-codes
-defaultContentLanguage = "en" # For HTML page, now support: en, zh-hans, zh-hant, ja, nl, pl, it
+# Whether to build a search index to be used later on by a JavaScript library
+build_search_index = false
 
-summaryLength = 100 # Custom summary length, add <!--more--> in post file to custom split point
-paginate = 10
+theme = "terminus"
+title = "Random notes from OS developer"
 
-# googleAnalytics = "UA-000000000-0" # Set your Google Analytics UA here
+[markdown]
+# Whether to do syntax highlighting
+# Theme can be customised by setting the `highlight_theme` variable to a theme supported by Zola
+highlight_code = true
 
-[outputFormats]
-[outputFormats.SearchIndex]
-isPlainText = true
-notAlternative = true
-mediaType = "application/json"
-path = "/search/"
-
-[outputs]
-home = ["HTML", "RSS", "SearchIndex"]
-
-[permalinks]
-post = "/:section/:filename/" # Custom post links, e.g. "/:year/:month/:title/"
-
-[params]
-author = "Pavel Skripkin"                # You can also set author in post front matter individually
-subTitle = "Random notes from OS developer"
-defaultTheme = "auto"              # default theme when first visit (auto|dark|light)
-
-# Source URL of the website, will appear in the footer
-sourceURL = "https://github.com/pskrgag/pskrgag.github.io"
-
-# Word counter and read time indicator in post metadata
-showWordCounter = true
-showReadTime = false
-
-# License in the footer
-showLicenseInFooter = false
-
-# License at the end of each post
-showLicense = false
-showToc = true
-
-# Copyright
-copyrightStartYear = "2020"
-
-# Open Graph & Twitter Card variables
-# You can also set description and images in post front matter individually
-description = "A minimal Hugo theme with nice theme color."
-og = "/img/og.png"                                          # This will use the image called og.png in static/img folder
-
-# Posts shown in homepage
-mainSections = ["post"]
-
-# Bangumi image chart id
-# bgmImageChart = "000000"
-
-# License
-license = "CC BY-NC-SA 4.0"
-licenseLink = "http://creativecommons.org/licenses/by-nc-sa/4.0/"
-
-# custom lazyload placeholder
-# 16:9
-lazyPlaceholder = "/assets/lazyload/dsrca_loading_480x270.svg"
-# 32:9
-lazyPlaceholderRow = "/assets/lazyload/dsrca_loading_960x270.svg"
-# 8:9
-lazyPlaceholderCol = "/assets/lazyload/dsrca_loading_480x540.svg"
-
-# Let images display in full brightness under dark mode
-# disableDarkImage = true
-
-[markup]
-[markup.goldmark]
-[markup.goldmark.renderer]
-unsafe = true # Enable user to embed HTML snippets in Markdown content
-[markup.highlight]
-codeFences = false # Disable Hugo's code highlighter
-
-[markup.tableOfContents]
-startLevel = 2
-endLevel = 3
-
-[taxonomies]
-tag = "tags"
-
-[menu]
-[[menu.nav]]
-name = "Home"
-url = "/"
-weight = 1
-
-[[menu.nav]]
-name = "About"
-url = "/about/"
-weight = 3
-
-# [[menu.nav]]
-# name = "Search"
-# url = "/search/"
-# weight = 4
-## [[menu.nav]]
-## name = "RSS"
-## url = "/index.xml"
-## weight = 5
-
-[[menu.link]]
-name = "GitHub"
-url = "https://github.com/pskrgag"
-weight = 1
-[[menu.link]]
-name = "Linkedin"
-url = "https://www.linkedin.com/in/pskrgag/"
-weight = 2
-
-[build]
-noJSConfigInAssets = true
-
-[security]
-enableInlineShortcodes = true
+[extra]
+# Put all your custom variables here

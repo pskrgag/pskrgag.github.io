@@ -1,8 +1,7 @@
 +++
 title = "Understanding Vyukov MPMC ring buffer"
-description = "Markdown Syntax test page"
+description = "Random notes"
 date = "2025-01-05"
-tags = ["concurrency"]
 +++
 
 ## Intro

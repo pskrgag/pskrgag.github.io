@@ -1,8 +1,7 @@
 +++
 title = "Subset of JSON parser in 150 lines of Haskell code"
-description = "??"
+description = "I learned a bit of Haskell"
 date = "2024-05-10"
-tags = ["haskell", "parsing"]
 +++
 
 ## Intro

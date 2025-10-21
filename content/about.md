@@ -6,17 +6,15 @@ showLicense = false
 showToc = false
 +++
 
-<img align="left" width="300" height="300" src="/53155781.png">
-
 <div style="color:pink;font-weight:bold;" align="center">Pavel Skripkin</div>
-<div align="center" style="font-weight:bold;">Linux kernel developer/hobbyist</div>
+<div align="center" style="font-weight:bold;">Systems software developer</div>
 
 \
 email: paskripkin@gmail.com \
 github: [pskrgag](https://github.com/pskrgag) \
 linkedin: [pskrgag](https://www.linkedin.com/in/pskrgag/)
 
-<div align="center">Contributions</div>
+<div align="center">Open-source Contributions</div>
 
 
 [Linux kernel](https://git.kernel.org/pub/scm/linux/kernel/git/next/linux-next.git/log/?qt=grep&q=paskripkin) \

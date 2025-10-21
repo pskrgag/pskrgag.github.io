@@ -1,8 +1,7 @@
 +++
 title = "Type safe packed pointers in C"
-description = "lol"
+description = "I beat C"
 date = "2025-10-20"
-tags = ["C"]
 +++
 
 ## Intro
@@ -12,7 +11,7 @@ Imagine you have allocator that works on top of huge contagious memory region. F
 Usually allocators return pointers that consume 8 bytes on 64-bit platforms. There is a way to reduce this number by a factor and
 preserve type-safety with zero memory foot-print.
 
-Along the lines I will explain step-by-step how I came up with this approach and will rant about C. In case you don't interested, jump straight to the (end)[#Full code] where you will find complete example and links.
+Along the lines I will explain step-by-step how I came up with this approach and will rant about C. In case you don't interested, jump straight to the [end](#full-code) where you will find complete example and links.
 
 ## Indexes
 
@@ -195,9 +194,9 @@ Eh... Looked promising. Maybe there are some language extensions that can help?
 
 Long time ago people noticed that writing code in ISO C is pain in the ass. In case you didn't, take a look at beautiful paper [How ISO C became unusable for operating systems development](https://arxiv.org/pdf/2201.07845). TL;DR nobody is writing ISO C now, everybody uses some superset of C that is more usable in the real life.
 
-For example Linux kernel won't ever build with optimization level less that `-01`, since it  relies on a compiler optimizations. Also it heavily replies on language extensions provided by mainstream compilers. (GCC)[https://gcc.gnu.org/onlinedocs/gcc-12.2.0/gcc/C-Extensions.html] and (Clang)[https://clang.llvm.org/docs/LanguageExtensions.html] have a wide support for various extensions that make life in C easier.
+For example Linux kernel won't ever build with optimization level less that `-01`, since it  relies on a compiler optimizations. Also it heavily replies on language extensions provided by mainstream compilers. [GCC](https://gcc.gnu.org/onlinedocs/gcc-12.2.0/gcc/C-Extensions.html) and [Clang](https://clang.llvm.org/docs/LanguageExtensions.html) have a wide support for various extensions that make life in C easier.
 
-I won't go into the details about all extensions, since there are a lot of them. I will focus only on the one we need: `__attribute__((packed))`. The attribute can be attached to structure type and it forces a compiler to remove all paddings (if you don't know what padding is, read this (SO answer)[https://stackoverflow.com/questions/4306186/structure-padding-and-packing]). For example:
+I won't go into the details about all extensions, since there are a lot of them. I will focus only on the one we need: `__attribute__((packed))`. The attribute can be attached to structure type and it forces a compiler to remove all paddings (if you don't know what padding is, read this [SO answer](https://stackoverflow.com/questions/4306186/structure-padding-and-packing]). For example:
 
 ```c
 struct Test {
@@ -427,13 +426,13 @@ But `int[10]*` is also not a valid type. To get the type of the pointer to some 
 #define PackedPtrConstructTypeTag(type)     typeof(&(type){})
 ```
 
-Inside `typeof` operator we contruct literal of type `type` and take pointer to it. Something like (declval)[https://en.cppreference.com/w/cpp/utility/declval.html] for C.
+Inside `typeof` operator we contruct literal of type `type` and take pointer to it. Something like [declval](https://en.cppreference.com/w/cpp/utility/declval.html) for C.
 
 Using this macro we now can finish our type-safe zero-cost packed pointer in C. Not in ISO C, but in real C.
 
 ## Full code
 
-Full code can be found in the next section and on my (github)[https://github.com/pskrgag/packed_ptr]. Macros here are intended to be used as building blocks, since they expect external base from user. You can build you macros on top of it.
+Full code can be found in the next section and on my [github](https://github.com/pskrgag/packed_ptr). Macros here are intended to be used as building blocks, since they expect external base from user. You can build you macros on top of it.
 
 ```c
 /*
