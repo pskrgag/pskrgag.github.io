@@ -1,35 +1,17 @@
-name: hugo publish
- 
-on:
- push:
-   branches:
-   - main
- 
+# On every push this script is executed
+on: push
+name: Build and deploy GH Pages
 jobs:
- build-deploy:
-   runs-on: ubuntu-latest
-   steps:
-   - name: Git checkout
-     uses: actions/checkout@v2
-  
-   - name: Update theme
-     run: git submodule update --init --recursive
- 
-   - name: Setup Hugo
-     uses: peaceiris/actions-hugo@v2
-     with:
-       hugo-version: 'latest'
- 
-   - name: Build
-     run: cd themes/fuji; git apply ../0001-update-theme.patch; cd - && hugo  --minify
- 
-   - name: Deploy
-     uses: peaceiris/actions-gh-pages@v3
-     with:
-       github_token: ${{ secrets.GITHUB_TOKEN }}
-       external_repository: pskrgag/pskrgag.github.io 
-       publish_branch: master
-       publish_dir: ./public
-       user_name: Pavel Skripkin
-       user_email: paskripkin@gmail.com
-
+  build:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/master'
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+      - name: build_and_deploy
+        uses: shalzz/zola-deploy-action@master
+        env:
+          # Target branch
+          PAGES_BRANCH: gh-pages
+          # Or if publishing to the same repo, use the automatic token
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
