@@ -1,0 +1,513 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src-attr 'unsafe-inline'">
+
+    <title>Type safe packed pointers in C | Random notes from OS developer</title>
+
+    <link rel="preload" href="https://pskrgag.github.io/fonts/FiraCode-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+    <link rel="preload" href="https://pskrgag.github.io/fonts/FiraCode-Bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://pskrgag.github.io/css/style.css?h=fd30ebca55fd38ab02dd">
+    <script src="https://pskrgag.github.io/js/auto-close-popover-on-resize.js?h=4ef87d6fc7b98b22e044" defer></script>
+    <script src="https://pskrgag.github.io/js/copy-code-to-clipboard.js?h=6aac77c47d552a0ac847" defer></script>
+    <script src="https://pskrgag.github.io/js/theme-switcher.js?h=c7049c13f5599d2609bf" defer></script>
+
+    <link rel="canonical" href="https://pskrgag.github.io/post/type-safe-packed-pointers/">
+    
+    <meta name="description" content="I beat C">
+    <meta name="robots" content="index, follow">
+    <meta name="theme-color" content="#211f1a">
+    <meta name="color-scheme" content="dark">
+
+    <meta property="og:title" content="Type safe packed pointers in C">
+    <meta property="og:type" content="article">
+    <meta property="og:url" content="https://pskrgag.github.io/post/type-safe-packed-pointers/">
+    <meta property="og:description" content="I beat C">
+    <meta property="og:site_name" content="Random notes from OS developer">
+    <meta property="og:updated_time" content="2025-10-21T20:08:26.774298940+00:00">
+    <meta property="article:published_time" content="2025-10-20T00:00:00+00:00">
+</head>
+
+<body class="layout-center">
+    <header class="header">
+        <div class="header-container">
+            <span class="header-logo-container">
+                <a href="https://pskrgag.github.io">
+                    <span class="logo">Random notes from OS developer</span>
+                </a>
+            </span>
+        </div>
+    </header>
+    <main id="main">
+        <article class="post content">
+            <header>
+                <h1 class="post-title">
+                    <a href="https://pskrgag.github.io/post/type-safe-packed-pointers/">Type safe packed pointers in C</a>
+                </h1>
+                <ul class="post-meta">
+                    <li title="Published on 2025-10-20"><time datetime="2025-10-20">2025.10.20</time></li>
+                    <li role="separator" aria-hidden="true">::</li>
+                    <li title="1249 words"><time datetime="PT7M">7 min</time> read</li>
+                </ul>
+            </header>
+
+<h2 id="intro">Intro<a class="post-anchor" href="#intro" aria-label="Anchor link for: intro"><span aria-hidden="true">#</span></a>
+</h2>
+<p>Imagine you have allocator that works on top of huge contiguous memory region. For instance because you know upper-bound of memory you will allocate. This maybe an arena allocator, slab allocator or regular <code>malloc</code>-like allocator, does not matter.</p>
+<p>Usually allocators return pointers that consume 8 bytes on 64-bit platforms. There is a way to reduce this number by a factor and
+preserve type-safety with zero memory foot-print.</p>
+<p>Along the lines I will explain step-by-step how I came up with this approach and will rant about C. In case you don't interested, jump straight to the <a href="https://pskrgag.github.io/post/type-safe-packed-pointers/#full-code">end</a> where you will find complete example and links.</p>
+<h2 id="indexes">Indexes<a class="post-anchor" href="#indexes" aria-label="Anchor link for: indexes"><span aria-hidden="true">#</span></a>
+</h2>
+<p>The first thing that comes to mind is indexes. Let's say our allocator works on top region <code>[N, M)</code>. Then if <code>M - N + 1</code> is less is equal to 4294967296 (which is <code>1 &lt;&lt; 32</code>), then it's possible to just use indexes of type <code>uint32_t</code>.</p>
+<pre data-lang="c" style="background-color:#2b303b;color:#c0c5ce;" class="language-c "><code class="language-c" data-lang="c"><span style="color:#b48ead;">typedef </span><span>uint32_t packed_ptr_t;
+</span><span>
+</span><span style="color:#b48ead;">static void </span><span>*</span><span style="color:#8fa1b3;">IndexTranslate</span><span>(packed_ptr_t </span><span style="color:#bf616a;">ptr</span><span>)
+</span><span>{
+</span><span>    </span><span style="color:#b48ead;">return </span><span>(</span><span style="color:#b48ead;">void </span><span>*) (REGION_START + ptr)
+</span><span>}
+</span><span>
+</span><span>packed_ptr_t packed_ptr = </span><span style="color:#bf616a;">Alloc</span><span>(sizeof(</span><span style="color:#b48ead;">int</span><span>));
+</span><span style="color:#b48ead;">int </span><span>*real_ptr = </span><span style="color:#bf616a;">IndexTranslate</span><span>(packed_ptr_t);
+</span></code></pre>
+<p>This works fine, however this way we lost the main advantage of C pointers -- type safety. For example with C pointers it is not possible to do the following</p>
+<pre data-lang="c" style="background-color:#2b303b;color:#c0c5ce;" class="language-c "><code class="language-c" data-lang="c"><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">ConsumePointer</span><span>(</span><span style="color:#b48ead;">int </span><span>*);
+</span><span>
+</span><span style="color:#b48ead;">double </span><span>*ptr;
+</span><span style="color:#bf616a;">ConsumePointer</span><span>(ptr);
+</span></code></pre>
+<p>Any sane C compiler will reject this code with something like <code>error: incompatible pointer types passing 'char *' to parameter of type 'int *</code>. This is because it's unsafe to interpret one bytes of one type as byte of the other.</p>
+<p>However, with indexes type information gets completely lost and following will compile and will cause bad things at runtime.</p>
+<pre data-lang="c" style="background-color:#2b303b;color:#c0c5ce;" class="language-c "><code class="language-c" data-lang="c"><span style="color:#b48ead;">typedef </span><span>uint32_t packed_ptr_t;
+</span><span>
+</span><span style="color:#b48ead;">static void </span><span>*</span><span style="color:#8fa1b3;">IndexTranslate</span><span>(packed_ptr_t </span><span style="color:#bf616a;">ptr</span><span>)
+</span><span>{
+</span><span>    </span><span style="color:#b48ead;">return </span><span>(</span><span style="color:#b48ead;">void </span><span>*) (REGION_START + ptr)
+</span><span>}
+</span><span>
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">ConsumeInt</span><span>(</span><span style="color:#b48ead;">int </span><span>*);
+</span><span>
+</span><span>packed_ptr_t packed_ptr = </span><span style="color:#bf616a;">Alloc</span><span>(sizeof(</span><span style="color:#b48ead;">char</span><span>));
+</span><span>
+</span><span style="color:#bf616a;">ConsumeInt</span><span>(</span><span style="color:#bf616a;">IndexTranslate</span><span>(packed_ptr_t));
+</span></code></pre>
+<p>This is classic type confusion bug, which C is famous for. That bug causes tons of CVEs. Not good. I guess, I can skip the part where I explain how the code above may cause problems, so let's try to add a little bit of safety to indexes.</p>
+<h2 id="bringing-type-safety-to-indexes">Bringing type-safety to indexes<a class="post-anchor" href="#bringing-type-safety-to-indexes" aria-label="Anchor link for: bringing-type-safety-to-indexes"><span aria-hidden="true">#</span></a>
+</h2>
+<p>What if we could somehow attach the type to the index. Also it would be good if this tag will not consume any memory. Cool and modern languages have this feature.</p>
+<p>For example in Rust it can be done as:</p>
+<pre data-lang="rust" style="background-color:#2b303b;color:#c0c5ce;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#65737e;">// Godbolt link https://godbolt.org/z/MKsf37a5b
+</span><span style="color:#b48ead;">use </span><span>core::marker::PhantomData;
+</span><span style="color:#b48ead;">use </span><span>core::mem::size_of;
+</span><span>
+</span><span>#[</span><span style="color:#bf616a;">derive</span><span>(Default)]
+</span><span style="color:#b48ead;">struct </span><span>Index&lt;T&gt;(</span><span style="color:#b48ead;">u32</span><span>, PhantomData&lt;T&gt;);
+</span><span>
+</span><span style="color:#b48ead;">const fn </span><span style="color:#8fa1b3;">foo</span><span>() {
+</span><span>    assert!(size_of::&lt;Index&lt;</span><span style="color:#b48ead;">usize</span><span>&gt;&gt;() == size_of::&lt;</span><span style="color:#b48ead;">u32</span><span>&gt;());
+</span><span>}
+</span><span>
+</span><span style="color:#65737e;">// Poor man static assert
+</span><span style="color:#b48ead;">static </span><span style="color:#d08770;">TEST</span><span>: () = </span><span style="color:#96b5b4;">foo</span><span>();
+</span><span style="color:#b48ead;">static </span><span style="color:#d08770;">BASE</span><span>: </span><span style="color:#b48ead;">usize </span><span>= </span><span style="color:#d08770;">0x100000</span><span>;
+</span><span>
+</span><span style="color:#b48ead;">impl</span><span>&lt;T&gt; Index&lt;T&gt; {
+</span><span>    </span><span style="color:#b48ead;">fn </span><span style="color:#8fa1b3;">as_ptr</span><span>(&amp;</span><span style="color:#bf616a;">self</span><span>) -&gt; </span><span style="color:#b48ead;">*const</span><span> T {
+</span><span>        (</span><span style="color:#d08770;">BASE </span><span>+ </span><span style="color:#bf616a;">self</span><span>.</span><span style="color:#d08770;">0 </span><span>as </span><span style="color:#b48ead;">usize</span><span>) as _
+</span><span>    }
+</span><span>}
+</span><span>
+</span></code></pre>
+<p>In c++ it can be done as:</p>
+<pre data-lang="cpp" style="background-color:#2b303b;color:#c0c5ce;" class="language-cpp "><code class="language-cpp" data-lang="cpp"><span style="color:#65737e;">// Godbolt link https://godbolt.org/z/zcnxYz9W7
+</span><span>
+</span><span style="color:#b48ead;">#include </span><span>&lt;</span><span style="color:#a3be8c;">cstdint</span><span>&gt;
+</span><span>
+</span><span style="color:#b48ead;">#define </span><span>BASE    </span><span style="color:#d08770;">0x100000
+</span><span>
+</span><span style="color:#b48ead;">template</span><span>&lt;</span><span style="color:#b48ead;">class</span><span> T&gt;
+</span><span style="color:#b48ead;">struct </span><span>Index {
+</span><span>    std::uint32_t idx;
+</span><span>
+</span><span>    T *</span><span style="color:#8fa1b3;">as_ptr</span><span>() </span><span style="color:#b48ead;">const </span><span>{
+</span><span>        </span><span style="color:#b48ead;">return </span><span>reinterpret_cast&lt;T *&gt;(BASE + idx);
+</span><span>    }
+</span><span>};
+</span><span>
+</span><span>static_assert(sizeof(Index&lt;</span><span style="color:#b48ead;">int</span><span>&gt;) == sizeof(std::uint32_t));
+</span><span>
+</span><span style="color:#b48ead;">int </span><span>*</span><span style="color:#8fa1b3;">test</span><span>(</span><span style="color:#b48ead;">void</span><span>)
+</span><span>{
+</span><span>    Index&lt;</span><span style="color:#b48ead;">int</span><span>&gt; idx;
+</span><span>    </span><span style="color:#b48ead;">return</span><span> idx.</span><span style="color:#bf616a;">as_ptr</span><span>();
+</span><span>}
+</span></code></pre>
+<p>But we are dealing with old-but-no-good C, so we can't afford generic programming without struggle.</p>
+<h3 id="template-structs">Template structs<a class="post-anchor" href="#template-structs" aria-label="Anchor link for: template-structs"><span aria-hidden="true">#</span></a>
+</h3>
+<p>As you all know, C has a preproccessor step. It is simple text substitution step that runs before compilation step. Using it, it's possible to create "template" structs in C like:</p>
+<pre data-lang="c" style="background-color:#2b303b;color:#c0c5ce;" class="language-c "><code class="language-c" data-lang="c"><span style="color:#b48ead;">#define </span><span style="color:#8fa1b3;">TemplateStruct</span><span>(</span><span style="color:#bf616a;">T</span><span>)   \
+</span><span>    </span><span style="color:#b48ead;">struct</span><span> Struct##T {      \
+</span><span>        T a, b, c;          \
+</span><span>    } test;
+</span><span>
+</span><span style="color:#bf616a;">TemplateStruct</span><span>(</span><span style="color:#b48ead;">int</span><span>) test = {};
+</span></code></pre>
+<p>With such macro it would be possible to construct a "generic" index, which will contain type. Moving on.</p>
+<h3 id="flexible-arrays">Flexible arrays<a class="post-anchor" href="#flexible-arrays" aria-label="Anchor link for: flexible-arrays"><span aria-hidden="true">#</span></a>
+</h3>
+<p>Flexible arrays is kinda obscure C feature that allows to create DST (dynamically sized types) in C. However, it's completely unsafe and works not how you expect it to work.</p>
+<p>Let's take a look at an example:</p>
+<pre data-lang="c" style="background-color:#2b303b;color:#c0c5ce;" class="language-c "><code class="language-c" data-lang="c"><span style="color:#65737e;">// Godbolt link https://godbolt.org/z/aEPoEP6zG
+</span><span>
+</span><span style="color:#b48ead;">struct </span><span>Flex {
+</span><span>    </span><span style="color:#b48ead;">int</span><span> a;
+</span><span>    </span><span style="color:#b48ead;">char</span><span> arr[];
+</span><span>};
+</span></code></pre>
+<p>This declares a structure that contains one <code>int</code> and unknown number of <code>size_t</code> elements. Basically non-flex part of the struct can be viewed as header for the data in <code>arr</code>. In memory it's laid out as following (assuming <code>sizeof(int)</code> is 4):</p>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>|x| - is one byte of payload
+</span><span>
+</span><span>  Flex
+</span><span>   v
+</span><span>   |x|x|x|x|x|x|x|...
+</span><span>   ^       ^
+</span><span>   a      arr
+</span><span>  
+</span></code></pre>
+<p>And <code>sizeof(struct Flex)</code> is equal to <code>sizeof(int)</code>. This looks like a solution to the problem -- flexible array is a "type tag" that costs no memory. That's all?</p>
+<p>No. Let's take a look at this struct.</p>
+<pre data-lang="c" style="background-color:#2b303b;color:#c0c5ce;" class="language-c "><code class="language-c" data-lang="c"><span style="color:#65737e;">// Godbolt link https://godbolt.org/z/aEPoEP6zG
+</span><span>
+</span><span style="color:#b48ead;">struct </span><span>FlexLong {
+</span><span>    </span><span style="color:#b48ead;">int</span><span> a;
+</span><span>    </span><span style="color:#b48ead;">unsigned long</span><span> arr[];
+</span><span>};
+</span></code></pre>
+<p>Should be <code>sizeof(int)</code>, shouldn't it? It should, but we are in C. <code>unsigned long</code> has bigger alignment requirements (8 bytes on LP64 systems) than <code>int</code>, so struct's size is padded to be multiply of it. As a result <code>sizeof(struct FlexLong)</code> is 8. This time memory layout will look like:</p>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>|x| - is one byte of payload
+</span><span>
+</span><span>  Flex
+</span><span>   v
+</span><span>   |x|x|x|x| | | | |x|x|x|...
+</span><span>   ^       ^       ^
+</span><span>   a      padd    arr
+</span><span>  
+</span></code></pre>
+<p>Eh... Looked promising. Maybe there are some language extensions that can help?</p>
+<h3 id="attributes">Attributes<a class="post-anchor" href="#attributes" aria-label="Anchor link for: attributes"><span aria-hidden="true">#</span></a>
+</h3>
+<p>Long time ago people noticed that writing code in ISO C is pain in the ass. In case you didn't, take a look at beautiful paper <a href="https://arxiv.org/pdf/2201.07845">How ISO C became unusable for operating systems development</a>. TL;DR nobody is writing ISO C now, everybody uses some superset of C that is more usable in the real life.</p>
+<p>For example Linux kernel won't ever build with optimization level less that <code>-01</code>, since it  relies on a compiler optimizations. Also it heavily replies on language extensions provided by mainstream compilers. <a href="https://gcc.gnu.org/onlinedocs/gcc-12.2.0/gcc/C-Extensions.html">GCC</a> and <a href="https://clang.llvm.org/docs/LanguageExtensions.html">Clang</a> have a wide support for various extensions that make life in C easier.</p>
+<p>I won't go into the details about all extensions, since there are a lot of them. I will focus only on the one we need: <code>__attribute__((packed))</code>. The attribute can be attached to structure type and it forces a compiler to remove all paddings (if you don't know what padding is, read this <a href="https://stackoverflow.com/questions/4306186/structure-padding-and-packing%5D">SO answer</a>. For example:</p>
+<pre data-lang="c" style="background-color:#2b303b;color:#c0c5ce;" class="language-c "><code class="language-c" data-lang="c"><span style="color:#b48ead;">struct </span><span>Test {
+</span><span>    </span><span style="color:#b48ead;">int</span><span> a;
+</span><span>    </span><span style="color:#b48ead;">char</span><span> b;
+</span><span>};
+</span><span>
+</span><span style="color:#bf616a;">_Static_assert</span><span>(sizeof(</span><span style="color:#b48ead;">struct</span><span> Test) == sizeof(</span><span style="color:#b48ead;">int</span><span>) * </span><span style="color:#d08770;">2</span><span>);
+</span><span>
+</span><span style="color:#b48ead;">struct </span><span>TestPacked {
+</span><span>    </span><span style="color:#b48ead;">int</span><span> a;
+</span><span>    </span><span style="color:#b48ead;">char</span><span> b;
+</span><span>} </span><span style="color:#b48ead;">__attribute__</span><span>((packed));
+</span><span>
+</span><span style="color:#bf616a;">_Static_assert</span><span>(sizeof(</span><span style="color:#b48ead;">struct</span><span> TestPacked) == sizeof(</span><span style="color:#b48ead;">int</span><span>) + sizeof(</span><span style="color:#b48ead;">char</span><span>));
+</span></code></pre>
+<p>This way it's possible to use flexible array hack from previous part as type tag without size increase:</p>
+<pre data-lang="c" style="background-color:#2b303b;color:#c0c5ce;" class="language-c "><code class="language-c" data-lang="c"><span style="color:#65737e;">// Godbolt link https://godbolt.org/z/xMP9Ec8Tv
+</span><span>
+</span><span style="color:#b48ead;">struct </span><span>FlexLongPacked {
+</span><span>    </span><span style="color:#b48ead;">int</span><span> a;
+</span><span>    </span><span style="color:#b48ead;">unsigned long</span><span> arr[];
+</span><span>} </span><span style="color:#b48ead;">__attribute__</span><span>((packed));
+</span><span>
+</span><span style="color:#bf616a;">_Static_assert</span><span>(sizeof(</span><span style="color:#b48ead;">struct</span><span> FlexLongPacked) == sizeof(</span><span style="color:#b48ead;">int</span><span>));
+</span><span style="color:#bf616a;">_Static_assert</span><span>(</span><span style="color:#bf616a;">_Alignof</span><span>(</span><span style="color:#b48ead;">struct</span><span> FlexLongPacked) == </span><span style="color:#d08770;">1</span><span>);
+</span></code></pre>
+<p>This works, but <code>packed</code> removes all alignment requirements from the struct. This may sound OK, but in reality it is not. We are not in the 90s, so I won't tell you that this will cause crashes, no. On any modern hw unaligned access won't trap, however it <strong>may</strong> cause longer access. HW is faster when loads and stores work with aligned memory.</p>
+<p>To fix it, it's possible to use another extension <code>__attribute__((aligned(_Alignof(type)))</code></p>
+<pre data-lang="c" style="background-color:#2b303b;color:#c0c5ce;" class="language-c "><code class="language-c" data-lang="c"><span style="color:#65737e;">// Godbolt link https://godbolt.org/z/a77ParErY
+</span><span>
+</span><span style="color:#b48ead;">struct </span><span>FlexLongPacked {
+</span><span>    </span><span style="color:#b48ead;">int</span><span> a;
+</span><span>    </span><span style="color:#b48ead;">unsigned long</span><span> arr[];
+</span><span>} </span><span style="color:#b48ead;">__attribute__</span><span>((packed, aligned(</span><span style="color:#bf616a;">_Alignof</span><span>(</span><span style="color:#b48ead;">int</span><span>))));
+</span><span>
+</span><span style="color:#bf616a;">_Static_assert</span><span>(sizeof(</span><span style="color:#b48ead;">struct</span><span> FlexLongPacked) == sizeof(</span><span style="color:#b48ead;">int</span><span>));
+</span><span style="color:#bf616a;">_Static_assert</span><span>(</span><span style="color:#bf616a;">_Alignof</span><span>(</span><span style="color:#b48ead;">struct</span><span> FlexLongPacked) == </span><span style="color:#bf616a;">_Alignof</span><span>(</span><span style="color:#b48ead;">int</span><span>));
+</span></code></pre>
+<p>This way struct will be naturally aligned and will have zero-cost type tag.</p>
+<h3 id="constructing-type-safe-packed-pointer">Constructing type-safe packed pointer<a class="post-anchor" href="#constructing-type-safe-packed-pointer" aria-label="Anchor link for: constructing-type-safe-packed-pointer"><span aria-hidden="true">#</span></a>
+</h3>
+<p>Now we have all needed tools to construct a type-safe packed pointer type. Let's try</p>
+<pre data-lang="c" style="background-color:#2b303b;color:#c0c5ce;" class="language-c "><code class="language-c" data-lang="c"><span style="color:#65737e;">// Godbolt link https://godbolt.org/z/Kf8PY9WMz
+</span><span style="color:#b48ead;">typedef </span><span>uint32_t packed_ptr_t;
+</span><span>
+</span><span style="color:#b48ead;">#define </span><span style="color:#8fa1b3;">PackedPtr</span><span>(</span><span style="color:#bf616a;">type</span><span>)     \
+</span><span style="color:#b48ead;">struct </span><span>{                    \
+</span><span>    packed_ptr_t ptr;       \
+</span><span>    type __dont_touch[];    \
+</span><span>} </span><span style="color:#b48ead;">__attribute__</span><span>((packed, aligned(</span><span style="color:#bf616a;">_Alignof</span><span>(packed_ptr_t))))
+</span><span>
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">test</span><span>(</span><span style="color:#b48ead;">void</span><span>)
+</span><span>{
+</span><span>    </span><span style="color:#bf616a;">PackedPtr</span><span>(</span><span style="color:#b48ead;">int</span><span>) var;
+</span><span>
+</span><span>    </span><span style="color:#bf616a;">_Static_assert</span><span>(sizeof(var) == sizeof(packed_ptr_t));
+</span><span>}
+</span></code></pre>
+<p>It works! Let's try to put this pointer in a struct.</p>
+<pre data-lang="c" style="background-color:#2b303b;color:#c0c5ce;" class="language-c "><code class="language-c" data-lang="c"><span style="color:#65737e;">// Godbolt link https://godbolt.org/z/r7W8fPh6E
+</span><span style="color:#b48ead;">typedef </span><span>uint32_t packed_ptr_t;
+</span><span>
+</span><span style="color:#b48ead;">#define </span><span style="color:#8fa1b3;">PackedPtr</span><span>(</span><span style="color:#bf616a;">type</span><span>)     \
+</span><span style="color:#b48ead;">struct </span><span>{                    \
+</span><span>    packed_ptr_t ptr;       \
+</span><span>    type __dont_touch[];    \
+</span><span>} </span><span style="color:#b48ead;">__attribute__</span><span>((packed, aligned(</span><span style="color:#bf616a;">_Alignof</span><span>(packed_ptr_t))))
+</span><span>
+</span><span style="color:#b48ead;">struct </span><span>Test {
+</span><span>    </span><span style="color:#bf616a;">PackedPtr</span><span>(</span><span style="color:#b48ead;">int</span><span>) ptr;
+</span><span>    </span><span style="color:#b48ead;">int</span><span> a;
+</span><span>};
+</span></code></pre>
+<p>GCC stays silent, however clang is more pedantic in such case:</p>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>warning: field &#39;ptr&#39; with variable sized type &#39;struct (unnamed struct at &lt;source&gt;:12:5)&#39; not at the end of a struct or class is a GNU extension [-Wgnu-variable-sized-type-not-at-end]
+</span><span>   12 |     PackedPtr(int) ptr;
+</span></code></pre>
+<p>Fair complain. Compiler does not know that this <code>__dont_touch</code> is a tag, but not a flexible array. In latter case it's definitely an error and should be reported. It's possible to use ugly pragmas to suppress this warning, but I hate it. Let's look for another solution.</p>
+<p>After loud swearing and couple of hours I came up with.</p>
+<pre data-lang="c" style="background-color:#2b303b;color:#c0c5ce;" class="language-c "><code class="language-c" data-lang="c"><span style="color:#65737e;">// Godbolt link https://godbolt.org/z/hE9nGzobc
+</span><span>
+</span><span style="color:#b48ead;">#include </span><span>&lt;</span><span style="color:#a3be8c;">stdint.h</span><span>&gt;
+</span><span>
+</span><span style="color:#b48ead;">typedef </span><span>uint32_t packed_ptr_t;
+</span><span>
+</span><span style="color:#b48ead;">#define </span><span style="color:#8fa1b3;">PackedPtr</span><span>(</span><span style="color:#bf616a;">type</span><span>)          \
+</span><span style="color:#b48ead;">struct </span><span>{                         \
+</span><span>    </span><span style="color:#b48ead;">struct </span><span>{                     \
+</span><span>        packed_ptr_t ptr;        \
+</span><span>        </span><span style="color:#b48ead;">union </span><span>{                  \
+</span><span>            type __dont_touch;   \
+</span><span>        } __dont_touch[];        \
+</span><span>    } </span><span style="color:#b48ead;">__attribute__</span><span>((packed)) __inner[</span><span style="color:#d08770;">1</span><span>];                \
+</span><span>} </span><span style="color:#b48ead;">__attribute__</span><span>((aligned(</span><span style="color:#bf616a;">_Alignof</span><span>(packed_ptr_t))))
+</span><span>
+</span><span style="color:#b48ead;">struct </span><span>Test {
+</span><span>    </span><span style="color:#bf616a;">PackedPtr</span><span>(</span><span style="color:#b48ead;">int</span><span>) ptr;
+</span><span>    </span><span style="color:#b48ead;">int</span><span> a;
+</span><span>    </span><span style="color:#bf616a;">PackedPtr</span><span>(</span><span style="color:#b48ead;">int</span><span>) ptr1;
+</span><span>};
+</span><span>
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">test</span><span>(</span><span style="color:#b48ead;">void</span><span>)
+</span><span>{
+</span><span>    </span><span style="color:#bf616a;">PackedPtr</span><span>(</span><span style="color:#b48ead;">unsigned long</span><span>) var;
+</span><span>
+</span><span>    </span><span style="color:#bf616a;">_Static_assert</span><span>(sizeof(var) == sizeof(packed_ptr_t), &quot;&quot;);
+</span><span>    </span><span style="color:#bf616a;">_Static_assert</span><span>(</span><span style="color:#bf616a;">_Alignof</span><span>(</span><span style="color:#bf616a;">typeof</span><span>(var)) == </span><span style="color:#bf616a;">_Alignof</span><span>(packed_ptr_t), &quot;&quot;);
+</span><span>}
+</span></code></pre>
+<p>Don't ask me why and how, it just works. Now let's add helper macros for this type:</p>
+<pre data-lang="c" style="background-color:#2b303b;color:#c0c5ce;" class="language-c "><code class="language-c" data-lang="c"><span style="color:#65737e;">// Godbolt link https://godbolt.org/z/P4E7Wxhnj
+</span><span>
+</span><span style="color:#b48ead;">#include </span><span>&lt;</span><span style="color:#a3be8c;">stdint.h</span><span>&gt;
+</span><span>
+</span><span style="color:#b48ead;">#define </span><span>BASE    </span><span style="color:#d08770;">0x100000
+</span><span>
+</span><span style="color:#b48ead;">typedef </span><span>uint32_t packed_ptr_t;
+</span><span>
+</span><span style="color:#b48ead;">#define </span><span style="color:#8fa1b3;">PackedPtr</span><span>(</span><span style="color:#bf616a;">type</span><span>)          \
+</span><span style="color:#b48ead;">struct </span><span>{                         \
+</span><span>    </span><span style="color:#b48ead;">struct </span><span>{                     \
+</span><span>        packed_ptr_t ptr;        \
+</span><span>        </span><span style="color:#b48ead;">union </span><span>{                  \
+</span><span>            type __dont_touch;   \
+</span><span>        } __dont_touch[];        \
+</span><span>    } __inner[</span><span style="color:#d08770;">1</span><span>];                \
+</span><span>} </span><span style="color:#b48ead;">__attribute__</span><span>((packed, aligned(</span><span style="color:#bf616a;">_Alignof</span><span>(packed_ptr_t))))
+</span><span>
+</span><span style="color:#b48ead;">#define </span><span style="color:#8fa1b3;">PackedPtrGetPointerType</span><span>(</span><span style="color:#bf616a;">kPtr</span><span>) </span><span style="color:#bf616a;">typeof</span><span>(&amp;(</span><span style="color:#d08770;">kPtr</span><span>).</span><span style="color:#bf616a;">__inner</span><span>[</span><span style="color:#d08770;">0</span><span>].</span><span style="color:#bf616a;">__dont_touch</span><span>[</span><span style="color:#d08770;">0</span><span>].</span><span style="color:#bf616a;">__dont_touch</span><span>)
+</span><span>
+</span><span style="color:#b48ead;">#define </span><span style="color:#8fa1b3;">PackedPtrGetPointer</span><span>(</span><span style="color:#bf616a;">kPtr</span><span>)   \
+</span><span>    (</span><span style="color:#bf616a;">PackedPtrGetPointerType</span><span>(</span><span style="color:#d08770;">kPtr</span><span>))((uintptr_t)(</span><span style="color:#d08770;">kPtr</span><span>).</span><span style="color:#bf616a;">__inner</span><span>[</span><span style="color:#d08770;">0</span><span>].</span><span style="color:#bf616a;">ptr </span><span>+ BASE)
+</span><span>
+</span><span style="color:#b48ead;">#define </span><span style="color:#8fa1b3;">ASSERT_TYPES_COMPATIBLE</span><span>(</span><span style="color:#bf616a;">type1</span><span>, </span><span style="color:#bf616a;">type2</span><span>)   </span><span style="color:#bf616a;">_Static_assert</span><span>(</span><span style="color:#bf616a;">__builtin_types_compatible_p</span><span>(type1, type2), &quot;&quot;)
+</span><span>
+</span><span style="color:#b48ead;">#define </span><span style="color:#8fa1b3;">PackedPtrAssign</span><span>(</span><span style="color:#bf616a;">kPtr</span><span>, </span><span style="color:#bf616a;">pointer</span><span>)  </span><span style="color:#b48ead;">do </span><span>{                                           \
+</span><span>    </span><span style="color:#bf616a;">ASSERT_TYPES_COMPATIBLE</span><span>(</span><span style="color:#bf616a;">PackedPtrGetPointerType</span><span>(</span><span style="color:#d08770;">kPtr</span><span>), </span><span style="color:#bf616a;">typeof</span><span>(pointer));           \
+</span><span>    </span><span style="color:#65737e;">/* Here you likely want to check that pointer is in bounds */                      </span><span>\
+</span><span>    (</span><span style="color:#d08770;">kPtr</span><span>).</span><span style="color:#bf616a;">__inner</span><span>[</span><span style="color:#d08770;">0</span><span>].</span><span style="color:#bf616a;">ptr </span><span>= BASE - (uintptr_t)(pointer);                               \
+</span><span>} </span><span style="color:#b48ead;">while </span><span>(</span><span style="color:#d08770;">0</span><span>);
+</span><span>
+</span><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">test</span><span>(</span><span style="color:#b48ead;">int </span><span>*</span><span style="color:#bf616a;">someRealPtr</span><span>, </span><span style="color:#b48ead;">void </span><span>*</span><span style="color:#bf616a;">otherPtr</span><span>)
+</span><span>{
+</span><span>    </span><span style="color:#bf616a;">PackedPtr</span><span>(</span><span style="color:#b48ead;">int</span><span>) ptr;
+</span><span>
+</span><span>    </span><span style="color:#bf616a;">PackedPtrAssign</span><span>(ptr, someRealPtr);
+</span><span>
+</span><span>    </span><span style="color:#b48ead;">int </span><span>*real = </span><span style="color:#bf616a;">PackedPtrGetPointer</span><span>(ptr);
+</span><span>
+</span><span>    </span><span style="color:#65737e;">// Warns
+</span><span>    </span><span style="color:#b48ead;">unsigned </span><span>*realWrong = </span><span style="color:#bf616a;">PackedPtrGetPointer</span><span>(ptr);
+</span><span>    </span><span style="color:#65737e;">// Does not compiles
+</span><span>    </span><span style="color:#bf616a;">PackedPtrAssign</span><span>(ptr, otherPtr);
+</span><span>}
+</span></code></pre>
+<p><code>PackedPtrGetPointerType(kPtr)</code> returns inner pointer type (i.e. <code>type *</code>). <code>PackedPtrGetPointer(kPtr)</code> return strongly typed pointer to the underlying data. <code>PackedPtrAssign</code> constructs packed pointer from a C pointer.</p>
+<p><code>PackedPtrAssign</code> does some magic by verifying that passed pointer is compatible with tag type. Otherwise type safety invariant is not maintained, since the original pointer type may not match the resulting type.</p>
+<p>That's all? I'd hope so, but we need one small step further. Consider following:</p>
+<pre data-lang="c" style="background-color:#2b303b;color:#c0c5ce;" class="language-c "><code class="language-c" data-lang="c"><span style="color:#b48ead;">void </span><span style="color:#8fa1b3;">test</span><span>(</span><span style="color:#b48ead;">void</span><span>)
+</span><span>{
+</span><span>    </span><span style="color:#bf616a;">PackedPtr</span><span>(</span><span style="color:#b48ead;">int</span><span>[</span><span style="color:#d08770;">10</span><span>]) ptr;
+</span><span>}
+</span></code></pre>
+<p>It definitely won't compile, because it will be expanded to</p>
+<pre data-lang="c" style="background-color:#2b303b;color:#c0c5ce;" class="language-c "><code class="language-c" data-lang="c"><span style="color:#b48ead;">struct </span><span>{
+</span><span>    </span><span style="color:#b48ead;">struct </span><span>{
+</span><span>        packed_ptr_t ptr;
+</span><span>        </span><span style="color:#b48ead;">union </span><span>{
+</span><span>            </span><span style="color:#b48ead;">int</span><span>[</span><span style="color:#d08770;">10</span><span>] __dont_touch;
+</span><span>        } __dont_touch[];
+</span><span>    };
+</span><span>}
+</span></code></pre>
+<p>, which is not valid C. We need our tag to be a pointer rather than a plain type. This way it will be possible to store any type tags.</p>
+<p>First thing that comes to mind is adding <code>*</code> after type like</p>
+<pre data-lang="diff" style="background-color:#2b303b;color:#c0c5ce;" class="language-diff "><code class="language-diff" data-lang="diff"><span>#define PackedPtr(type)           \
+</span><span>struct {                          \
+</span><span>    struct {                      \
+</span><span>        packed_ptr_t ptr;         \
+</span><span>        union {                   \
+</span><span style="color:#bf616a;">-            type __dont_touch;   \
+</span><span style="color:#a3be8c;">+            type *__dont_touch;  \
+</span><span>        } __dont_touch[];         \
+</span><span>    } __inner[1];                 \
+</span><span>} __attribute__((packed, aligned(_Alignof(packed_ptr_t))))
+</span></code></pre>
+<p>But <code>int[10]*</code> is also not a valid type. To get the type of the pointer to some value we can use following trick</p>
+<pre data-lang="c" style="background-color:#2b303b;color:#c0c5ce;" class="language-c "><code class="language-c" data-lang="c"><span style="color:#b48ead;">#define </span><span style="color:#8fa1b3;">PackedPtrConstructTypeTag</span><span>(</span><span style="color:#bf616a;">type</span><span>)     </span><span style="color:#bf616a;">typeof</span><span>(&amp;(type){})
+</span></code></pre>
+<p>Inside <code>typeof</code> operator we contruct literal of type <code>type</code> and take pointer to it. Something like <a href="https://en.cppreference.com/w/cpp/utility/declval.html">declval</a> for C.</p>
+<p>Using this macro we now can finish our type-safe zero-cost packed pointer in C. Not in ISO C, but in real C.</p>
+<h2 id="full-code">Full code<a class="post-anchor" href="#full-code" aria-label="Anchor link for: full-code"><span aria-hidden="true">#</span></a>
+</h2>
+<p>Full code can be found in the next section and on my <a href="https://github.com/pskrgag/packed_ptr">github</a>. Macros here are intended to be used as building blocks, since they expect external base from user. You can build you macros on top of it.</p>
+<pre data-lang="c" style="background-color:#2b303b;color:#c0c5ce;" class="language-c "><code class="language-c" data-lang="c"><span style="color:#65737e;">/*
+</span><span style="color:#65737e;"> * Copyright (c) 2025-2025 Pavel Skripkin
+</span><span style="color:#65737e;"> *
+</span><span style="color:#65737e;"> * Permission to use, copy, modify, and distribute this software for any
+</span><span style="color:#65737e;"> * purpose with or without fee is hereby granted, provided that the above
+</span><span style="color:#65737e;"> * copyright notice and this permission notice appear in all copies.
+</span><span style="color:#65737e;"> *
+</span><span style="color:#65737e;"> * THE SOFTWARE IS PROVIDED &quot;AS IS&quot; AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+</span><span style="color:#65737e;"> * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+</span><span style="color:#65737e;"> * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+</span><span style="color:#65737e;"> * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+</span><span style="color:#65737e;"> * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+</span><span style="color:#65737e;"> * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+</span><span style="color:#65737e;"> * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+</span><span style="color:#65737e;"> */
+</span><span>
+</span><span style="color:#b48ead;">#ifndef</span><span> PACKED_PTR_H
+</span><span style="color:#b48ead;">#define </span><span>PACKED_PTR_H
+</span><span>
+</span><span style="color:#65737e;">/**
+</span><span style="color:#65737e;"> * Packed pointer type that hold offset from some base address and zero-sized type tag.
+</span><span style="color:#65737e;"> */
+</span><span style="color:#b48ead;">#define </span><span style="color:#8fa1b3;">PackedPtr</span><span>(</span><span style="color:#bf616a;">inner_type</span><span>, </span><span style="color:#bf616a;">packed_ptr_t</span><span>)                           \
+</span><span>	</span><span style="color:#b48ead;">struct </span><span>{                                                      \
+</span><span>		</span><span style="color:#b48ead;">struct </span><span>{                                              \
+</span><span>			packed_ptr_t ptr;                             \
+</span><span>			</span><span style="color:#b48ead;">union </span><span>{                                       \
+</span><span>				</span><span style="color:#bf616a;">PackedPtrConstructTypeTag</span><span>(inner_type) \
+</span><span>					__dont_touch;                 \
+</span><span>			} __dont_touch[];                             \
+</span><span>		} </span><span style="color:#b48ead;">__attribute__</span><span>((packed)) __inner[</span><span style="color:#d08770;">1</span><span>];                 \
+</span><span>	} </span><span style="color:#b48ead;">__attribute__</span><span>((aligned(</span><span style="color:#bf616a;">_Alignof</span><span>(packed_ptr_t))))
+</span><span>
+</span><span style="color:#65737e;">/**
+</span><span style="color:#65737e;"> * Generates type tag. Internal use only.
+</span><span style="color:#65737e;"> */
+</span><span style="color:#b48ead;">#define </span><span style="color:#8fa1b3;">PackedPtrConstructTypeTag</span><span>(</span><span style="color:#bf616a;">type</span><span>) </span><span style="color:#bf616a;">typeof</span><span>(&amp;(type){})
+</span><span>
+</span><span style="color:#65737e;">/**
+</span><span style="color:#65737e;"> * Retrieves the type of the underlying pointer.
+</span><span style="color:#65737e;"> *
+</span><span style="color:#65737e;"> * @param[in] kPtr     packed pointer lvalue
+</span><span style="color:#65737e;"> *
+</span><span style="color:#65737e;"> * @return             type of underlying pointer
+</span><span style="color:#65737e;"> */
+</span><span style="color:#b48ead;">#define </span><span style="color:#8fa1b3;">PackedPtrGetPointerType</span><span>(</span><span style="color:#bf616a;">kPtr</span><span>) \
+</span><span>	</span><span style="color:#bf616a;">typeof</span><span>((</span><span style="color:#d08770;">kPtr</span><span>).</span><span style="color:#bf616a;">__inner</span><span>[</span><span style="color:#d08770;">0</span><span>].</span><span style="color:#bf616a;">__dont_touch</span><span>[</span><span style="color:#d08770;">0</span><span>].</span><span style="color:#bf616a;">__dont_touch</span><span>)
+</span><span>
+</span><span style="color:#65737e;">/**
+</span><span style="color:#65737e;"> * Retrieves the C pointer from packed pointer.
+</span><span style="color:#65737e;"> *
+</span><span style="color:#65737e;"> * @param[in] kPtr     packed pointer lvalue
+</span><span style="color:#65737e;"> * @param[in] base     base address of the allocator memory range
+</span><span style="color:#65737e;"> *
+</span><span style="color:#65737e;"> * @return             C pointer to the original allocation
+</span><span style="color:#65737e;"> */
+</span><span style="color:#b48ead;">#define </span><span style="color:#8fa1b3;">PackedPtrGetPointer</span><span>(</span><span style="color:#bf616a;">kPtr</span><span>, </span><span style="color:#bf616a;">base</span><span>)                                    \
+</span><span>	(</span><span style="color:#bf616a;">PackedPtrGetPointerType</span><span>(</span><span style="color:#d08770;">kPtr</span><span>))((uintptr_t)(</span><span style="color:#d08770;">kPtr</span><span>).</span><span style="color:#bf616a;">__inner</span><span>[</span><span style="color:#d08770;">0</span><span>].</span><span style="color:#bf616a;">ptr </span><span>+ \
+</span><span>					(base))
+</span><span>
+</span><span style="color:#65737e;">/**
+</span><span style="color:#65737e;"> * Asserts that two types are equal.
+</span><span style="color:#65737e;"> *
+</span><span style="color:#65737e;"> * @param[in] type1    first type
+</span><span style="color:#65737e;"> * @param[in] type2    second type
+</span><span style="color:#65737e;"> *
+</span><span style="color:#65737e;"> * @return             nothing, or fires compiler error in case of type mismatch
+</span><span style="color:#65737e;"> */
+</span><span style="color:#b48ead;">#define </span><span style="color:#8fa1b3;">ASSERT_TYPES_COMPATIBLE</span><span>(</span><span style="color:#bf616a;">type1</span><span>, </span><span style="color:#bf616a;">type2</span><span>) \
+</span><span>	</span><span style="color:#bf616a;">_Static_assert</span><span>(</span><span style="color:#bf616a;">__builtin_types_compatible_p</span><span>(type1, type2), &quot;&quot;)
+</span><span>
+</span><span style="color:#65737e;">/**
+</span><span style="color:#65737e;"> * Assigns value to the packed pointer.
+</span><span style="color:#65737e;"> *
+</span><span style="color:#65737e;"> * @note Fires compiler error in case of `pointer` type does not match type of the packed pointer
+</span><span style="color:#65737e;"> *
+</span><span style="color:#65737e;"> * @param[in] kPtr     packed pointer lvalue
+</span><span style="color:#65737e;"> * @param[in] pointer  pointer to memory allocation
+</span><span style="color:#65737e;"> * @param[in] base     base address of the allocator memory range
+</span><span style="color:#65737e;"> *
+</span><span style="color:#65737e;"> * @return             nothing, or fires compiler error in case of type mismatch
+</span><span style="color:#65737e;"> */
+</span><span style="color:#b48ead;">#define </span><span style="color:#8fa1b3;">PackedPtrAssign</span><span>(</span><span style="color:#bf616a;">kPtr</span><span>, </span><span style="color:#bf616a;">pointer</span><span>, </span><span style="color:#bf616a;">base</span><span>)                           \
+</span><span>	</span><span style="color:#b48ead;">do </span><span>{                                                           \
+</span><span>		</span><span style="color:#bf616a;">ASSERT_TYPES_COMPATIBLE</span><span>(</span><span style="color:#bf616a;">PackedPtrGetPointerType</span><span>(</span><span style="color:#d08770;">kPtr</span><span>), \
+</span><span>					</span><span style="color:#bf616a;">typeof</span><span>(pointer));              \
+</span><span>		(</span><span style="color:#d08770;">kPtr</span><span>).</span><span style="color:#bf616a;">__inner</span><span>[</span><span style="color:#d08770;">0</span><span>].</span><span style="color:#bf616a;">ptr </span><span>= (base) - (uintptr_t)(pointer); \
+</span><span>	} </span><span style="color:#b48ead;">while </span><span>(</span><span style="color:#d08770;">0</span><span>);
+</span><span>
+</span><span style="color:#b48ead;">#endif </span><span style="color:#65737e;">/* PACKED_PTR_H */
+</span></code></pre>
+
+        </article>
+        <nav class="post-navigation">
+            <header class="post-navigation-title">
+                <h2>Read More Posts</h2>
+                <hr>
+            </header>
+            <div class="post-navigation-buttons">
+                <a rel="prev" href="https://pskrgag.github.io/post/mpmc-vuykov/" aria-label="Prev article">
+                    <span aria-hidden="true">[</span>Understanding Vyukov MPMC ring buffer<span aria-hidden="true">]&nbsp;&gt;</span>
+                </a>
+            </div>
+        </nav>
+    </main>
+    <footer class="footer">
+        <p class="copyright">
+            <span>© <time>2025</time></span>
+            <span>Powered by <a href="https://www.getzola.org">Zola</a></span>
+            <span>Theme by <a href="https://eyalkalderon.com">ebkalderon</a></span>
+        </p>
+    </footer>
+</body>
+
+</html>

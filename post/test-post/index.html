@@ -1,0 +1,436 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src-attr 'unsafe-inline'">
+
+    <title>How to fix a bug in the Linux kernel | Random notes from OS developer</title>
+
+    <link rel="preload" href="https://pskrgag.github.io/fonts/FiraCode-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+    <link rel="preload" href="https://pskrgag.github.io/fonts/FiraCode-Bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://pskrgag.github.io/css/style.css?h=fd30ebca55fd38ab02dd">
+    <script src="https://pskrgag.github.io/js/auto-close-popover-on-resize.js?h=4ef87d6fc7b98b22e044" defer></script>
+    <script src="https://pskrgag.github.io/js/copy-code-to-clipboard.js?h=6aac77c47d552a0ac847" defer></script>
+    <script src="https://pskrgag.github.io/js/theme-switcher.js?h=c7049c13f5599d2609bf" defer></script>
+
+    <link rel="canonical" href="https://pskrgag.github.io/post/test-post/">
+    
+    <meta name="robots" content="index, follow">
+    <meta name="theme-color" content="#211f1a">
+    <meta name="color-scheme" content="dark">
+
+    <meta property="og:title" content="How to fix a bug in the Linux kernel">
+    <meta property="og:type" content="article">
+    <meta property="og:url" content="https://pskrgag.github.io/post/test-post/">
+    <meta property="og:site_name" content="Random notes from OS developer">
+    <meta property="og:updated_time" content="2025-10-21T20:08:26.773894871+00:00">
+    <meta property="article:published_time" content="2022-03-18T00:00:00+00:00">
+</head>
+
+<body class="layout-center">
+    <header class="header">
+        <div class="header-container">
+            <span class="header-logo-container">
+                <a href="https://pskrgag.github.io">
+                    <span class="logo">Random notes from OS developer</span>
+                </a>
+            </span>
+        </div>
+    </header>
+    <main id="main">
+        <article class="post content">
+            <header>
+                <h1 class="post-title">
+                    <a href="https://pskrgag.github.io/post/test-post/">How to fix a bug in the Linux kernel</a>
+                </h1>
+                <ul class="post-meta">
+                    <li title="Published on 2022-03-18"><time datetime="2022-03-18">2022.03.18</time></li>
+                    <li role="separator" aria-hidden="true">::</li>
+                    <li title="1042 words"><time datetime="PT6M">6 min</time> read</li>
+                </ul>
+            </header>
+
+<h2 id="intro">Intro<a class="post-anchor" href="#intro" aria-label="Anchor link for: intro"><span aria-hidden="true">#</span></a>
+</h2>
+<p>Since the only thing I can do is fixing random kernel bugs, I'd like to show
+how to understand and fix bugs reported by syzkaller by example.
+There are a lot of open bugs, so anyone who is
+looking for first contribution should try it! Most of the bugs really common, but in most cases
+maintainers do not have much time to fix bugs. It's great chance to step in and join kernel community by
+just adding missing validation check or something</p>
+<h2 id="configuration">Configuration<a class="post-anchor" href="#configuration" aria-label="Anchor link for: configuration"><span aria-hidden="true">#</span></a>
+</h2>
+<p>To fix a bug in the Linux kernel you should at least download the sources. The official tree locates
+<a href="https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git">here</a> and you can download it like
+this</p>
+<pre data-lang="bash" style="background-color:#2b303b;color:#c0c5ce;" class="language-bash "><code class="language-bash" data-lang="bash"><span style="color:#bf616a;">$</span><span> git clone git://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git
+</span></code></pre>
+<p>Next step is configure <code>git send-email</code>. Linux kernel development process is based on plain text email.
+No github pull requests or something. Brutal old-school emails in plain text. Add following configuration
+into your <code>~/.gitconfig</code>. Mine is for gmail accounts.</p>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>[sendemail]
+</span><span>	from = Name Surname &lt;email@examle.com&gt;
+</span><span>	smtpserver = smtp.gmail.com
+</span><span>	smtpuser = email@examle.com
+</span><span>	smtpencryption = tls
+</span><span>	smtppass = [pass]
+</span><span>	smtpserverport = 587
+</span><span>	confirm = auto
+</span></code></pre>
+<p>If you use 2 factor authentication <code>smtppass</code> field should be unique app password.
+You can create it on gmail security page.</p>
+<p>Great! You have set up all needed environment.</p>
+<h2 id="example-of-bug-fixing">Example of bug fixing<a class="post-anchor" href="#example-of-bug-fixing" aria-label="Anchor link for: example-of-bug-fixing"><span aria-hidden="true">#</span></a>
+</h2>
+<p>For this example I took <a href="https://syzkaller.appspot.com/bug?id=f2aa6d86061f7465b5bf6e306d91f52b29051730">this</a> bug. It's very simple, but it was open for 120 days! <br />
+Let's take a look at the full report.</p>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>------------[ cut here ]------------
+</span><span>WARNING: CPU: 1 PID: 3603 at drivers/i2c/i2c-core-base.c:2178 __i2c_transfer+0xa14/0x17c0 drivers/i2c/i2c-core-base.c:2178 drivers/i2c/i2c-core-base.c:2178
+</span><span>Modules linked in:
+</span><span>CPU: 1 PID: 3603 Comm: syz-executor029 Not tainted 5.16.0-rc5-syzkaller #0
+</span><span>Hardware name: Google Google Compute Engine/Google Compute Engine, BIOS Google 01/01/2011
+</span><span>RIP: 0010:__i2c_transfer+0xa14/0x17c0 drivers/i2c/i2c-core-base.c:2178 drivers/i2c/i2c-core-base.c:2178
+</span><span>Code: 0f 94 c7 31 ff 44 89 fe e8 e9 ab 9b fb 45 84 ff 0f 84 26 fd ff ff e8 fb a7 9b fb e8 65 3b 24 fb e9 17 fd ff ff e8 ec a7 9b fb &lt;0f&gt; 0b 41 bc ea ff ff ff e9 9e fd ff ff e8 da a7 9b fb 44 89 ee bf
+</span><span>RSP: 0018:ffffc90002aafce8 EFLAGS: 00010293
+</span><span>RAX: 0000000000000000 RBX: 0000000000000010 RCX: 0000000000000000
+</span><span>RDX: ffff88801c0f3a00 RSI: ffffffff85dc09e4 RDI: 0000000000000003
+</span><span>RBP: ffff88814a058b58 R08: 0000000000000000 R09: ffffffff8ff74ac7
+</span><span>R10: ffffffff85dc0008 R11: 0000000000000000 R12: 0000000000000010
+</span><span>R13: 0000000000000000 R14: ffff88814a058b78 R15: 0000000000000000
+</span><span>FS:  0000000000000000(0000) GS:ffff8880b9d00000(0063) knlGS:0000000056cc62c0
+</span><span>CS:  0010 DS: 002b ES: 002b CR0: 0000000080050033
+</span><span>CR2: 0000000020000000 CR3: 00000000773de000 CR4: 00000000003506e0
+</span><span>DR0: 0000000000000000 DR1: 0000000000000000 DR2: 0000000000000000
+</span><span>DR3: 0000000000000000 DR6: 00000000fffe0ff0 DR7: 0000000000000400
+</span><span>Call Trace:
+</span><span> &lt;TASK&gt;
+</span><span> i2c_transfer+0x1e6/0x3e0 drivers/i2c/i2c-core-base.c:2269 drivers/i2c/i2c-core-base.c:2269
+</span><span> i2cdev_ioctl_rdwr+0x583/0x6a0 drivers/i2c/i2c-dev.c:297 drivers/i2c/i2c-dev.c:297
+</span><span> compat_i2cdev_ioctl+0x419/0x4f0 drivers/i2c/i2c-dev.c:561 drivers/i2c/i2c-dev.c:561
+</span><span> __do_compat_sys_ioctl+0x1c7/0x290 fs/ioctl.c:972 fs/ioctl.c:972
+</span><span> do_syscall_32_irqs_on arch/x86/entry/common.c:112 [inline]
+</span><span> do_syscall_32_irqs_on arch/x86/entry/common.c:112 [inline] arch/x86/entry/common.c:178
+</span><span> __do_fast_syscall_32+0x65/0xf0 arch/x86/entry/common.c:178 arch/x86/entry/common.c:178
+</span><span> do_fast_syscall_32+0x2f/0x70 arch/x86/entry/common.c:203 arch/x86/entry/common.c:203
+</span><span> entry_SYSENTER_compat_after_hwframe+0x4d/0x5c
+</span><span>RIP: 0023:0xf7e6e549
+</span><span>Code: 03 74 c0 01 10 05 03 74 b8 01 10 06 03 74 b4 01 10 07 03 74 b0 01 10 08 03 74 d8 01 00 00 00 00 00 51 52 55 89 e5 0f 34 cd 80 &lt;5d&gt; 5a 59 c3 90 90 90 90 8d b4 26 00 00 00 00 8d b4 26 00 00 00 00
+</span><span>RSP: 002b:00000000fffc8b7c EFLAGS: 00000246 ORIG_RAX: 0000000000000036
+</span><span>RAX: ffffffffffffffda RBX: 0000000000000003 RCX: 0000000000000707
+</span><span>RDX: 00000000200003c0 RSI: 00000000fffc8bd0 RDI: 00000000f7f15000
+</span><span>RBP: 0000000000000000 R08: 0000000000000000 R09: 0000000000000000
+</span><span>R10: 0000000000000000 R11: 0000000000000000 R12: 0000000000000000
+</span><span>R13: 0000000000000000 R14: 0000000000000000 R15: 0000000000000000
+</span><span> &lt;/TASK&gt;
+</span><span>----------------
+</span><span>Code disassembly (best guess):
+</span><span>   0:	03 74 c0 01          	add    0x1(%rax,%rax,8),%esi
+</span><span>   4:	10 05 03 74 b8 01    	adc    %al,0x1b87403(%rip)        # 0x1b8740d
+</span><span>   a:	10 06                	adc    %al,(%rsi)
+</span><span>   c:	03 74 b4 01          	add    0x1(%rsp,%rsi,4),%esi
+</span><span>  10:	10 07                	adc    %al,(%rdi)
+</span><span>  12:	03 74 b0 01          	add    0x1(%rax,%rsi,4),%esi
+</span><span>  16:	10 08                	adc    %cl,(%rax)
+</span><span>  18:	03 74 d8 01          	add    0x1(%rax,%rbx,8),%esi
+</span><span>  1c:	00 00                	add    %al,(%rax)
+</span><span>  1e:	00 00                	add    %al,(%rax)
+</span><span>  20:	00 51 52             	add    %dl,0x52(%rcx)
+</span><span>  23:	55                   	push   %rbp
+</span><span>  24:	89 e5                	mov    %esp,%ebp
+</span><span>  26:	0f 34                	sysenter
+</span><span>  28:	cd 80                	int    $0x80
+</span><span>* 2a:	5d                   	pop    %rbp &lt;-- trapping instruction
+</span><span>  2b:	5a                   	pop    %rdx
+</span><span>  2c:	59                   	pop    %rcx
+</span><span>  2d:	c3                   	retq
+</span><span>  2e:	90                   	nop
+</span><span>  2f:	90                   	nop
+</span><span>  30:	90                   	nop
+</span><span>  31:	90                   	nop
+</span><span>  32:	8d b4 26 00 00 00 00 	lea    0x0(%rsi,%riz,1),%esi
+</span><span>  39:	8d b4 26 00 00 00 00 	lea    0x0(%rsi,%riz,1),%esi
+</span><span>----------------
+</span><span>Code disassembly (best guess):
+</span><span>   0:	03 74 c0 01          	add    0x1(%rax,%rax,8),%esi
+</span><span>   4:	10 05 03 74 b8 01    	adc    %al,0x1b87403(%rip)        # 0x1b8740d
+</span><span>   a:	10 06                	adc    %al,(%rsi)
+</span><span>   c:	03 74 b4 01          	add    0x1(%rsp,%rsi,4),%esi
+</span><span>  10:	10 07                	adc    %al,(%rdi)
+</span><span>  12:	03 74 b0 01          	add    0x1(%rax,%rsi,4),%esi
+</span><span>  16:	10 08                	adc    %cl,(%rax)
+</span><span>  18:	03 74 d8 01          	add    0x1(%rax,%rbx,8),%esi
+</span><span>  1c:	00 00                	add    %al,(%rax)
+</span><span>  1e:	00 00                	add    %al,(%rax)
+</span><span>  20:	00 51 52             	add    %dl,0x52(%rcx)
+</span><span>  23:	55                   	push   %rbp
+</span><span>  24:	89 e5                	mov    %esp,%ebp
+</span><span>  26:	0f 34                	sysenter
+</span><span>  28:	cd 80                	int    $0x80
+</span><span>* 2a:	5d                   	pop    %rbp &lt;-- trapping instruction
+</span><span>  2b:	5a                   	pop    %rdx
+</span><span>  2c:	59                   	pop    %rcx
+</span><span>  2d:	c3                   	retq
+</span><span>  2e:	90                   	nop
+</span><span>  2f:	90                   	nop
+</span><span>  30:	90                   	nop
+</span><span>  31:	90                   	nop
+</span><span>  32:	8d b4 26 00 00 00 00 	lea    0x0(%rsi,%riz,1),%esi
+</span><span>  39:	8d b4 26 00 00 00 00 	lea    0x0(%rsi,%riz,1),%esi
+</span></code></pre>
+<p>Report says there is a <code>WARN_ON</code> at drivers/i2c/i2c-core-base.c:2178. Let's take a look what kind of
+warning it is.</p>
+<pre data-lang="c" style="background-color:#2b303b;color:#c0c5ce;" class="language-c "><code class="language-c" data-lang="c"><span>	</span><span style="color:#b48ead;">if </span><span>(</span><span style="color:#bf616a;">WARN_ON</span><span>(!msgs || num &lt; </span><span style="color:#d08770;">1</span><span>))
+</span><span>		</span><span style="color:#b48ead;">return </span><span>-EINVAL;
+</span></code></pre>
+<p>Hm, looks like somebody passed wrong arguments. Where these numbers come from? This question can be
+easily answered by looking at stack trace.</p>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span> i2c_transfer+0x1e6/0x3e0 drivers/i2c/i2c-core-base.c:2269 drivers/i2c/i2c-core-base.c:2269
+</span><span> i2cdev_ioctl_rdwr+0x583/0x6a0 drivers/i2c/i2c-dev.c:297 drivers/i2c/i2c-dev.c:297
+</span><span> compat_i2cdev_ioctl+0x419/0x4f0 drivers/i2c/i2c-dev.c:561 drivers/i2c/i2c-dev.c:561
+</span><span> __do_compat_sys_ioctl+0x1c7/0x290 fs/ioctl.c:972 fs/ioctl.c:972
+</span><span> do_syscall_32_irqs_on arch/x86/entry/common.c:112 [inline]
+</span><span> do_syscall_32_irqs_on arch/x86/entry/common.c:112 [inline] arch/x86/entry/common.c:178
+</span><span> __do_fast_syscall_32+0x65/0xf0 arch/x86/entry/common.c:178 arch/x86/entry/common.c:178
+</span><span> do_fast_syscall_32+0x2f/0x70 arch/x86/entry/common.c:203 arch/x86/entry/common.c:203
+</span><span> entry_SYSENTER_compat_after_hwframe+0x4d/0x5c
+</span></code></pre>
+<p>First 6 entries are common syscall kernel path, so we can simply ignore them. Next one is <code>compat_i2cdev_ioctl</code>. This function is <code>ioctl</code> handler for <code>/dev/i2c-*</code> devices. We are not interested
+in purpose of this devices. Something related to i2c. What we really interested in is what this function does -- it copies some data from user-space and pass it deeper into i2c stack.</p>
+<pre data-lang="c" style="background-color:#2b303b;color:#c0c5ce;" class="language-c "><code class="language-c" data-lang="c"><span style="color:#d08770;">519 </span><span style="color:#b48ead;">static long </span><span style="color:#bf616a;">compat_i2cdev_ioctl</span><span>(</span><span style="color:#b48ead;">struct</span><span> file *file, </span><span style="color:#b48ead;">unsigned int</span><span> cmd, </span><span style="color:#b48ead;">unsigned long</span><span> arg)                                                 
+</span><span style="color:#d08770;">520 </span><span>{                                
+</span><span style="color:#d08770;">521         </span><span style="color:#b48ead;">struct</span><span> i2c_client *client = file-&gt;private_data;
+</span><span style="color:#d08770;">522         </span><span style="color:#b48ead;">unsigned long</span><span> funcs;     
+</span><span style="color:#d08770;">523         </span><span style="color:#b48ead;">switch </span><span>(cmd) {           
+</span><span style="color:#d08770;">524         </span><span style="color:#b48ead;">case</span><span> I2C_FUNCS:          
+</span><span style="color:#d08770;">525</span><span>                 funcs = </span><span style="color:#bf616a;">i2c_get_functionality</span><span>(client-&gt;adapter);
+</span><span style="color:#d08770;">526                 </span><span style="color:#b48ead;">return </span><span style="color:#bf616a;">put_user</span><span>(funcs, (compat_ulong_t __user *)arg);
+</span><span style="color:#d08770;">527         </span><span style="color:#b48ead;">case</span><span> I2C_RDWR: {         
+</span><span style="color:#d08770;">528                 </span><span style="color:#b48ead;">struct</span><span> i2c_rdwr_ioctl_data32 rdwr_arg;
+</span><span style="color:#d08770;">529                 </span><span style="color:#b48ead;">struct</span><span> i2c_msg32 __user *p;
+</span><span style="color:#d08770;">530                 </span><span style="color:#b48ead;">struct</span><span> i2c_msg *rdwr_pa;
+</span><span style="color:#d08770;">531                 </span><span style="color:#b48ead;">int</span><span> i;           
+</span><span style="color:#d08770;">532                                  
+</span><span style="color:#d08770;">533                 </span><span style="color:#b48ead;">if </span><span>(</span><span style="color:#bf616a;">copy_from_user</span><span>(&amp;rdwr_arg,
+</span><span style="color:#d08770;">534                                    </span><span>(</span><span style="color:#b48ead;">struct</span><span> i2c_rdwr_ioctl_data32 __user *)arg,
+</span><span style="color:#d08770;">535                                    </span><span>sizeof(rdwr_arg)))
+</span><span style="color:#d08770;">536                         </span><span style="color:#b48ead;">return </span><span>-EFAULT;
+</span><span style="color:#d08770;">537                                  
+</span><span style="color:#d08770;">538                 </span><span style="color:#b48ead;">if </span><span>(rdwr_arg.</span><span style="color:#bf616a;">nmsgs </span><span>&gt; I2C_RDWR_IOCTL_MAX_MSGS)
+</span><span style="color:#d08770;">539                         </span><span style="color:#b48ead;">return </span><span>-EINVAL;
+</span><span style="color:#d08770;">540                                  
+</span><span style="color:#d08770;">541</span><span>                 rdwr_pa = </span><span style="color:#bf616a;">kmalloc_array</span><span>(rdwr_arg.</span><span style="color:#bf616a;">nmsgs</span><span>, sizeof(</span><span style="color:#b48ead;">struct</span><span> i2c_msg),
+</span><span style="color:#d08770;">542</span><span>                                       GFP_KERNEL);
+</span><span style="color:#d08770;">543                 </span><span style="color:#b48ead;">if </span><span>(!rdwr_pa)    
+</span><span style="color:#d08770;">544                         </span><span style="color:#b48ead;">return </span><span>-ENOMEM;
+</span><span style="color:#d08770;">545                                  
+</span><span style="color:#d08770;">546</span><span>                 p = </span><span style="color:#bf616a;">compat_ptr</span><span>(rdwr_arg.</span><span style="color:#bf616a;">msgs</span><span>);
+</span><span style="color:#d08770;">547                 </span><span style="color:#b48ead;">for </span><span>(i = </span><span style="color:#d08770;">0</span><span>; i &lt; rdwr_arg.</span><span style="color:#bf616a;">nmsgs</span><span>; i++) {
+</span><span style="color:#d08770;">548                         </span><span style="color:#b48ead;">struct</span><span> i2c_msg32 umsg;
+</span><span style="color:#d08770;">549                         </span><span style="color:#b48ead;">if </span><span>(</span><span style="color:#bf616a;">copy_from_user</span><span>(&amp;umsg, p + i, sizeof(umsg))) {
+</span><span style="color:#d08770;">550                                 </span><span style="color:#bf616a;">kfree</span><span>(rdwr_pa); 
+</span><span style="color:#d08770;">551                                 </span><span style="color:#b48ead;">return </span><span>-EFAULT;
+</span><span style="color:#d08770;">552                         </span><span>}        
+</span><span style="color:#d08770;">553</span><span>                         rdwr_pa[i] = (</span><span style="color:#b48ead;">struct</span><span> i2c_msg) {
+</span><span style="color:#d08770;">554                                 </span><span>.</span><span style="color:#bf616a;">addr </span><span>= umsg.</span><span style="color:#bf616a;">addr</span><span>,
+</span><span style="color:#d08770;">555                                 </span><span>.</span><span style="color:#bf616a;">flags </span><span>= umsg.</span><span style="color:#bf616a;">flags</span><span>,
+</span><span style="color:#d08770;">556                                 </span><span>.</span><span style="color:#bf616a;">len </span><span>= umsg.</span><span style="color:#bf616a;">len</span><span>,
+</span><span style="color:#d08770;">557                                 </span><span>.</span><span style="color:#bf616a;">buf </span><span>= </span><span style="color:#bf616a;">compat_ptr</span><span>(umsg.</span><span style="color:#bf616a;">buf</span><span>)
+</span><span style="color:#d08770;">558                         </span><span>};       
+</span><span style="color:#d08770;">559                 </span><span>}                
+</span><span style="color:#d08770;">560                                  
+</span><span style="color:#d08770;">561                 </span><span style="color:#b48ead;">return </span><span style="color:#bf616a;">i2cdev_ioctl_rdwr</span><span>(client, rdwr_arg.</span><span style="color:#bf616a;">nmsgs</span><span>, rdwr_pa);
+</span><span style="color:#d08770;">562         </span><span>}                        
+</span><span style="color:#d08770;">563         </span><span style="color:#b48ead;">case</span><span> I2C_SMBUS: {        
+</span><span style="color:#d08770;">564                 </span><span style="color:#b48ead;">struct</span><span> i2c_smbus_ioctl_data32   data32;
+</span><span style="color:#d08770;">565                 </span><span style="color:#b48ead;">if </span><span>(</span><span style="color:#bf616a;">copy_from_user</span><span>(&amp;data32,
+</span><span style="color:#d08770;">566                                    </span><span>(</span><span style="color:#b48ead;">void</span><span> __user *) arg,
+</span><span style="color:#d08770;">567                                    </span><span>sizeof(data32)))
+</span><span style="color:#d08770;">568                         </span><span style="color:#b48ead;">return </span><span>-EFAULT;
+</span><span style="color:#d08770;">569                 </span><span style="color:#b48ead;">return </span><span style="color:#bf616a;">i2cdev_ioctl_smbus</span><span>(client, data32.</span><span style="color:#bf616a;">read_write</span><span>,
+</span><span style="color:#d08770;">570</span><span>                                           data32.</span><span style="color:#bf616a;">command</span><span>,
+</span><span style="color:#d08770;">571</span><span>                                           data32.</span><span style="color:#bf616a;">size</span><span>,
+</span><span style="color:#d08770;">572                                           </span><span style="color:#bf616a;">compat_ptr</span><span>(data32.</span><span style="color:#bf616a;">data</span><span>));
+</span><span style="color:#d08770;">573         </span><span>}                        
+</span><span style="color:#d08770;">574         </span><span style="color:#b48ead;">default</span><span>:                 
+</span><span style="color:#d08770;">575                 </span><span style="color:#b48ead;">return </span><span style="color:#bf616a;">i2cdev_ioctl</span><span>(file, cmd, arg);
+</span><span style="color:#d08770;">576         </span><span>}                        
+</span><span style="color:#d08770;">577 </span><span>}
+</span><span>
+</span></code></pre>
+<p>Next stack trace entry is <code>i2cdev_ioctl_rdwr</code>. From just looking at the code we can say, that reproducer
+passed <code>I2C_RDWR</code> as cmd. Take a closer look at the call</p>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>return i2cdev_ioctl_rdwr(client, rdwr_arg.nmsgs, rdwr_pa);
+</span></code></pre>
+<p><code>rdwr_arg.nmsgs</code> is user controlled value. It's obvious from <code>copy_from_user</code> call on line 533.
+Ok, let's go down to stack. What does <code>i2cdev_ioctl_rdwr</code>? I won't copy-paste full function, I will cut it
+to very simplified form</p>
+<pre data-lang="c" style="background-color:#2b303b;color:#c0c5ce;" class="language-c "><code class="language-c" data-lang="c"><span>
+</span><span style="color:#b48ead;">static</span><span> noinline </span><span style="color:#b48ead;">int </span><span style="color:#8fa1b3;">i2cdev_ioctl_rdwr</span><span>(</span><span style="color:#b48ead;">struct</span><span> i2c_client *</span><span style="color:#bf616a;">client</span><span>,
+</span><span>		</span><span style="color:#b48ead;">unsigned </span><span style="color:#bf616a;">nmsgs</span><span>, </span><span style="color:#b48ead;">struct</span><span> i2c_msg *</span><span style="color:#bf616a;">msgs</span><span>)
+</span><span>{
+</span><span>	u8 __user **data_ptrs;
+</span><span>	</span><span style="color:#b48ead;">int</span><span> i, res;
+</span><span>
+</span><span>	data_ptrs = </span><span style="color:#bf616a;">kmalloc_array</span><span>(nmsgs, sizeof(u8 __user *), GFP_KERNEL);
+</span><span>	</span><span style="color:#b48ead;">if </span><span>(data_ptrs == </span><span style="color:#d08770;">NULL</span><span>) {
+</span><span>		</span><span style="color:#bf616a;">kfree</span><span>(msgs);
+</span><span>		</span><span style="color:#b48ead;">return </span><span>-ENOMEM;
+</span><span>	}
+</span><span>
+</span><span>	res = </span><span style="color:#d08770;">0</span><span>;
+</span><span>	</span><span style="color:#b48ead;">for </span><span>(i = </span><span style="color:#d08770;">0</span><span>; i &lt; nmsgs; i++) {
+</span><span>		</span><span style="color:#65737e;">/* something */
+</span><span>	}
+</span><span>
+</span><span>
+</span><span>	res = </span><span style="color:#bf616a;">i2c_transfer</span><span>(client-&gt;adapter, msgs, nmsgs); &lt;--- Hm???
+</span><span>
+</span><span>	</span><span style="color:#65737e;">/* something else */
+</span><span>}
+</span></code></pre>
+<p>Do you see a problem? Let's go back to root case of the bug. There is following warning in <code>i2c_transfer</code>.</p>
+<pre data-lang="c" style="background-color:#2b303b;color:#c0c5ce;" class="language-c "><code class="language-c" data-lang="c"><span>	</span><span style="color:#b48ead;">if </span><span>(</span><span style="color:#bf616a;">WARN_ON</span><span>(!msgs || num &lt; </span><span style="color:#d08770;">1</span><span>))
+</span><span>		</span><span style="color:#b48ead;">return </span><span>-EINVAL;
+</span></code></pre>
+<p>And as we discovered above <code>msgs</code> is user-controlled value. Code must validate passed arguments before
+passing them down to i2c transfer functions. <code>compat_i2cdev_ioctl</code> check only for <code>nmsgs</code> max value,
+but not for <code>nmsgs</code> being zero.</p>
+<p>I come up with this solution</p>
+<pre data-lang="diff" style="background-color:#2b303b;color:#c0c5ce;" class="language-diff "><code class="language-diff" data-lang="diff"><span>diff --git a/drivers/i2c/i2c-dev.c b/drivers/i2c/i2c-dev.c
+</span><span>index bce0e8bb7852..cf5d049342ea 100644
+</span><span>--- a/drivers/i2c/i2c-dev.c
+</span><span>+++ b/drivers/i2c/i2c-dev.c
+</span><span>@@ -535,6 +535,9 @@ </span><span style="color:#8fa1b3;">static long compat_i2cdev_ioctl(struct file *file, unsigned int cmd, unsigned lo
+</span><span>                                   sizeof(rdwr_arg)))
+</span><span>                        return -EFAULT;
+</span><span> 
+</span><span style="color:#a3be8c;">+               if (!rdwr_arg.msgs || rdwr_arg.nmsgs == 0)
+</span><span style="color:#a3be8c;">+                       return -EINVAL;
+</span><span style="color:#a3be8c;">+
+</span><span>                if (rdwr_arg.nmsgs &gt; I2C_RDWR_IOCTL_MAX_MSGS)
+</span><span>                        return -EINVAL;
+</span><span> 
+</span></code></pre>
+<h1 id="how-to-test-your-fix">How to test your fix<a class="post-anchor" href="#how-to-test-your-fix" aria-label="Anchor link for: how-to-test-your-fix"><span aria-hidden="true">#</span></a>
+</h1>
+<p>The easiest way is delegate testing to syzbot. Full communication guide can
+be found <a href="https://github.com/google/syzkaller/blob/15439f1624735bde5ae3f3b66c1b964a980415b3/docs/syzbot.md">here</a>, but we need only one command.</p>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>#syz test: &lt;tree&gt; &lt;branch or commit SHA&gt;
+</span></code></pre>
+<p>For upstream bug use</p>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>#syz test git://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git master
+</span></code></pre>
+<p>Just send an email to mail address that can be found on bug page</p>
+<img src="/2022-03-19_00-39.png">
+<p>And attach your patch to the email (as file or as plain text). Syzbot will build the kernel and
+run reproducer for some time. If it won't hit any bugs you will receive <code>Reported-and-tested-by</code> tag.</p>
+<p>A bit harder way is to use <code>qemu</code>. You will need to build the kernel by yourself and it's topic for separate
+post.</p>
+<h1 id="how-to-format-send-your-patch">How to format send your patch<a class="post-anchor" href="#how-to-format-send-your-patch" aria-label="Anchor link for: how-to-format-send-your-patch"><span aria-hidden="true">#</span></a>
+</h1>
+<p>Commit your changes using</p>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>$ git add -u
+</span><span>$ git commit -s
+</span></code></pre>
+<p><code>-s</code> is important! This argument automatically adds <code>Signed-off-by</code> with your email and name to commit log.
+Patches w/o <code>Signed-off-by</code> tag will be automatically rejected. It doesn't
+matter if change is correct or not. 1st line is the subject of your patch. The format is following:</p>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>&lt;subsystem name&gt;: [&lt;subsystem part if present&gt;:] &lt;short description of the change&gt;
+</span></code></pre>
+<p>For this example:</p>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>i2c: validate user data in compat ioctl
+</span></code></pre>
+<p>The bug itself is in i2c core, so there is no need in specifying subsystem part. Subject line should be
+less than 75 characters in length, but it's not strict rule. The main rule is -- subject must be small and
+should describe the change. Put blank line after the subject line and describe the change in more details.
+Add why this change is needed, what's the root case and how you have fixed it. You can add anything
+you feel related to the patch. Put blank line after commit message and before tags. It makes patches
+look more nice. Do not forget to add <code>Reported-by</code> tag from bug page or <code>Reported-and-tested-by</code> received
+from syzbot</p>
+<img src="/2022-03-19_00-39.png">
+<p>Example patch message</p>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>    i2c: validate user data in compat ioctl	&lt;- Subject line
+</span><span>						&lt;- Blank line before commit message
+</span><span>    Wrong user data may cause warning in i2c_transfer(), ex: zero msgs.
+</span><span>    Userspace should not be able to trigger warnings, so this patch adds
+</span><span>    validation checks for user data in compact ioctl to prevent reported
+</span><span>    warnings
+</span><span>						&lt;- Blank line before tags
+</span><span>    Reported-and-tested-by: syzbot+e417648b303855b91d8a@syzkaller.appspotmail.com
+</span><span>    Fixes: 7d5cb45655f2 (&quot;i2c compat ioctls: move to -&gt;compat_ioctl()&quot;)
+</span><span>    Signed-off-by: Pavel Skripkin &lt;paskripkin@gmail.com&gt;
+</span></code></pre>
+<p>FWIW, commit message itself should be formatted to 75 chars per line. Some maintainers might get mad at
+you for wrong formatting. The full guide for submitting patches can be found <a href="https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/Documentation/process/submitting-patches.rst">here</a>.</p>
+<p>Ok, your patch is formatted in your local tree. How to post it to mailing lists? First of all use</p>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>$ git format-patch HEAD~
+</span><span>0001-i2c-validate-user-data-in-compat-ioctl.patch
+</span><span>$ 
+</span></code></pre>
+<p>command. It will create formatted patch email which you can send using <code>git send-email</code> command.
+Do not hurry with sending it. Smart kernel developers created a script for finding common mistakes in
+patches. Do not forget to use it <em>before</em> posting a patch. Simply run this command from kernel root
+directory</p>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>$ ./scripts/checkpatch.pl 0001-i2c-validate-user-data-in-compat-ioctl.patch
+</span><span>WARNING: Possible unwrapped commit description (prefer a maximum 75 chars per line)
+</span><span>#11: 
+</span><span>Reported-and-tested-by: syzbot+e417648b303855b91d8a@syzkaller.appspotmail.com
+</span><span>
+</span><span>total: 0 errors, 1 warnings, 9 lines checked
+</span><span>
+</span><span>NOTE: For some of the reported defects, checkpatch may be able to
+</span><span>      mechanically convert to the typical style using --fix or --fix-inplace.
+</span><span>
+</span><span>0001-i2c-validate-user-data-in-compat-ioctl.patch has style problems, please review.
+</span><span>
+</span><span>NOTE: If any of the errors are false positives, please report
+</span><span>      them to the maintainer, see CHECKPATCH in MAINTAINERS.
+</span></code></pre>
+<p>There is one warning. It can be ignored, because tags <em>must</em> be one-liners. So looks like our patch is
+ready for submittion. The last thing we need the list of people interested in our change. There is also
+a script for that. It's called <code>get_maintainer.pl</code>. Example of usage:</p>
+<pre data-lang="bash" style="background-color:#2b303b;color:#c0c5ce;" class="language-bash "><code class="language-bash" data-lang="bash"><span style="color:#bf616a;">$</span><span> ./scripts/get_maintainer.pl 0001-i2c-validate-user-data-in-compat-ioctl.patch 
+</span><span style="color:#bf616a;">Wolfram</span><span> Sang &lt;wsa@kernel.org&gt; (maintainer:I2C SUBSYSTEM)
+</span><span style="color:#bf616a;">Al</span><span> Viro &lt;viro@zeniv.linux.org.uk&gt; (blamed_fixes:1/1=100%)
+</span><span style="color:#bf616a;">linux-i2c@vger.kernel.org</span><span> (open list:I2C SUBSYSTEM)
+</span><span style="color:#bf616a;">linux-kernel@vger.kernel.org</span><span> (open list)
+</span></code></pre>
+<p>Not so many people... And the last step is send the patch. Just put all needed emails in <code>git send-email</code>
+arguments and press enter. Like this</p>
+<pre data-lang="bash" style="background-color:#2b303b;color:#c0c5ce;" class="language-bash "><code class="language-bash" data-lang="bash"><span style="color:#bf616a;">$</span><span> git send-email \
+</span><span>&gt; --to=wsa@kernel.org \
+</span><span>&gt; --to=viro@zeniv.linux.org.uk \
+</span><span>&gt; --cc=linux-i2c@vger.kernel.org \
+</span><span>&gt; --cc=linux-kernel@vger.kernel.org \
+</span><span>&gt; </span><span style="color:#d08770;">0001</span><span>-i2c-validate-user-data-in-compat-ioctl.patch
+</span></code></pre>
+<p>You can check <code>https://lore.kernel.org/</code> to see if patch reached the lists. Mine can be found <a href="https://lore.kernel.org/all/20211230224750.15380-1-paskripkin@gmail.com/">here</a>. If your patch reached the lists then you
+just need to sit down and relax. Sometimes maintainers reply within a day, but average waiting time
+for a feedback is 7-8 days. Don't hurry, maintainers are very busy people, so no need to rush.</p>
+<p>Good luck in bug fixing and thanks for reading!</p>
+
+        </article>
+        <nav class="post-navigation">
+            <header class="post-navigation-title">
+                <h2>Read More Posts</h2>
+                <hr>
+            </header>
+            <div class="post-navigation-buttons">
+                <a rel="next" href="https://pskrgag.github.io/post/json/" aria-label="Next article">
+                    <span aria-hidden="true">&lt;&nbsp;[</span>Subset of JSON parser in 150 lines of Haskell code<span aria-hidden="true">]</span>
+                </a>
+            </div>
+        </nav>
+    </main>
+    <footer class="footer">
+        <p class="copyright">
+            <span>© <time>2025</time></span>
+            <span>Powered by <a href="https://www.getzola.org">Zola</a></span>
+            <span>Theme by <a href="https://eyalkalderon.com">ebkalderon</a></span>
+        </p>
+    </footer>
+</body>
+
+</html>
