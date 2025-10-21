@@ -6,7 +6,7 @@ date = "2025-10-20"
 
 ## Intro
 
-Imagine you have allocator that works on top of huge contagious memory region. For instance because you know upper-bound of memory you will allocate. This maybe an arena allocator, slab allocator or regular `malloc`-like allocator, does not matter.
+Imagine you have allocator that works on top of huge contiguous memory region. For instance because you know upper-bound of memory you will allocate. This maybe an arena allocator, slab allocator or regular `malloc`-like allocator, does not matter.
 
 Usually allocators return pointers that consume 8 bytes on 64-bit platforms. There is a way to reduce this number by a factor and
 preserve type-safety with zero memory foot-print.
