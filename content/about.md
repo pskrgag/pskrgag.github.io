@@ -12,7 +12,8 @@ showToc = false
 \
 email: paskripkin@gmail.com \
 github: [pskrgag](https://github.com/pskrgag) \
-linkedin: [pskrgag](https://www.linkedin.com/in/pskrgag/)
+linkedin: [pskrgag](https://www.linkedin.com/in/pskrgag/) \
+Up-to-date CV: [CV](/files/cv.pdf)
 
 <div align="center">Open-source Contributions</div>
 
