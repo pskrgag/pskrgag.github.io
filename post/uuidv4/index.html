@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src-attr 'unsafe-inline'">
+
+    <title>Parsing and formatting UUIDv4 with SIMD | Random notes from OS developer</title>
+
+    <link rel="preload" href="https://pskrgag.github.io/fonts/FiraCode-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+    <link rel="preload" href="https://pskrgag.github.io/fonts/FiraCode-Bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://pskrgag.github.io/css/style.css?h=f91747564993ff5cb597">
+    <script src="https://pskrgag.github.io/js/auto-close-popover-on-resize.js?h=4ef87d6fc7b98b22e044" defer></script>
+    <script src="https://pskrgag.github.io/js/copy-code-to-clipboard.js?h=6eec6d5a29e934c1de32" defer></script>
+
+    <link rel="canonical" href="https://pskrgag.github.io/post/uuidv4/">
+    
+    <meta name="description" content="Notes for future me">
+    <meta name="robots" content="index, follow">
+    <meta name="theme-color" content="#211f1a">
+    <meta name="color-scheme" content="dark">
+
+    <meta property="og:title" content="Parsing and formatting UUIDv4 with SIMD">
+    <meta property="og:type" content="article">
+    <meta property="og:url" content="https://pskrgag.github.io/post/uuidv4/">
+    <meta property="og:description" content="Notes for future me">
+    <meta property="og:site_name" content="Random notes from OS developer">
+    <meta property="og:updated_time" content="2026-05-17T16:31:15.798017552+00:00">
+    <meta property="article:published_time" content="2026-05-16T00:00:00+00:00">
+    <meta name="twitter:label2" content="Reading time">
+    <meta name="twitter:data2" content="4 min">
+</head>
+
+<body class="layout-center" data-theme="terminus">
+    <header class="header">
+        <div class="header-container">
+            <span class="header-logo-container">
+                <a href="https://pskrgag.github.io">
+                    <span class="logo">Random notes from OS developer</span>
+                </a>
+            </span>
+        </div>
+    </header>
+    <main id="main">
+        <article class="post content">
+            <header>
+                <h1 class="post-title">
+                    <a href="https://pskrgag.github.io/post/uuidv4/">Parsing and formatting UUIDv4 with SIMD</a>
+                </h1>
+                <ul class="post-meta hidden">
+                    <li title="Published on 2026-05-16"><time datetime="2026-05-16">2026.05.16</time></li>
+                    <li role="separator" aria-hidden="true">::</li>
+                    <li title="774 words"><time datetime="PT4M">4 min</time> read</li>
+                </ul>
+            </header>
+
+<h2 id="intro">Intro<a class="post-anchor" href="#intro" aria-label="Anchor link for: intro"><span aria-hidden="true">#</span></a>
+</h2>
+<p>Sometimes I spend evenings solving <a rel="external" href="https://highload.fun/home">highload.fun</a> tasks. Just to learn some CPU performance things in practice rather than from books. So I decided to write down some notes on SIMD UUIDv4 parsing for the <a rel="external" href="https://highload.fun/challenges/compute/sort_uuids/solve/RUST">Sort UUIDs</a> task.</p>
+<p>The next sections assume at least basic x86 SIMD knowledge.</p>
+<h2 id="parsing">Parsing<a class="post-anchor" href="#parsing" aria-label="Anchor link for: parsing"><span aria-hidden="true">#</span></a>
+</h2>
+<p>UUIDv4 has a very simple format:</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="plain"><span class="giallo-l"><span>&lt;8 hex digits&gt;-&lt;4 hex digits&gt;-&lt;4 hex digits&gt;-&lt;4 hex digits&gt;-&lt;12 hex digits&gt;</span></span></code></pre>
+<p>37 bytes in total. My machine only has AVX2, which gives access to 32-byte registers. Anyway, it is enough for parsing.</p>
+<h3 id="parsing-algorithm">Parsing algorithm<a class="post-anchor" href="#parsing-algorithm" aria-label="Anchor link for: parsing-algorithm"><span aria-hidden="true">#</span></a>
+</h3>
+<p>Let's take a random UUID and parse it.</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="plain"><span class="giallo-l"><span>fb3115c3-49af-4617-b86a-14c81e293da4</span></span></code></pre>
+<p>Firstly, let's load first 32 bytes into avx2 register:</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="plain"><span class="giallo-l"><span>[&#39;f&#39;, &#39;b&#39;, &#39;3&#39;, &#39;1&#39;, &#39;1&#39;, &#39;5&#39;, &#39;c&#39;, &#39;3&#39;, &#39;-&#39;, &#39;4&#39;, &#39;9&#39;, &#39;a&#39;, &#39;f&#39;, &#39;-&#39;, &#39;4&#39;, &#39;6&#39;, &#39;1&#39;, &#39;7&#39;, &#39;-&#39;, &#39;b&#39;, &#39;8&#39;, &#39;6&#39;, &#39;a&#39;, &#39;-&#39;, &#39;1&#39;, &#39;4&#39;, &#39;c&#39;, &#39;8&#39;, &#39;1&#39;, &#39;e&#39;, &#39;2&#39;, &#39;9&#39;]</span></span></code></pre>
+<p>Then we need to get rid of dashes, since they are not part of the number. First thing that comes to mind is to use <code>_mm256_shuffle_epi8</code> to move bytes right to dashes positions. However, there is a problem -- <code>_mm256_shuffle_epi8</code> cannot do cross-lane shuffle. Why is it a problem?</p>
+<p>Our original layout is following</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="plain"><span class="giallo-l"><span>[&#39;f&#39;, &#39;b&#39;, &#39;3&#39;, &#39;1&#39;, &#39;1&#39;, &#39;5&#39;, &#39;c&#39;, &#39;3&#39;, &#39;-&#39;, &#39;4&#39;, &#39;9&#39;, &#39;a&#39;, &#39;f&#39;, &#39;-&#39;, &#39;4&#39;, &#39;6&#39;, // lane1</span></span>
+<span class="giallo-l"><span> &#39;1&#39;, &#39;7&#39;, &#39;-&#39;, &#39;b&#39;, &#39;8&#39;, &#39;6&#39;, &#39;a&#39;, &#39;-&#39;, &#39;1&#39;, &#39;4&#39;, &#39;c&#39;, &#39;8&#39;, &#39;1&#39;, &#39;e&#39;, &#39;2&#39;, &#39;9&#39;] // lane2</span></span></code></pre>
+<p>But we want</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="plain"><span class="giallo-l"><span>[&#39;f&#39;, &#39;b&#39;, &#39;3&#39;, &#39;1&#39;, &#39;1&#39;, &#39;5&#39;, &#39;c&#39;, &#39;3&#39;, &#39;4&#39;, &#39;9&#39;, &#39;a&#39;, &#39;f&#39;, &#39;4&#39;, &#39;6&#39;, &#39;1&#39;, &#39;7&#39; // lane1</span></span>
+<span class="giallo-l"><span> &#39;b&#39;, &#39;8&#39;, &#39;6&#39;, &#39;a&#39;, &#39;1&#39;, &#39;4&#39;, &#39;c&#39;, &#39;8&#39;, &#39;1&#39;, &#39;e&#39;, &#39;2&#39;, &#39;9&#39;, ...]               // lane2</span></span></code></pre>
+<p>In case you didn't notice: '1' and '7' are moved across lane. The only thing we can do is to keep all chars on their lanes and have 2 unused bytes at the end of each lane.</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="plain"><span class="giallo-l"><span>[&#39;f&#39;, &#39;b&#39;, &#39;3&#39;, &#39;1&#39;, &#39;1&#39;, &#39;5&#39;, &#39;c&#39;, &#39;3&#39;, &#39;4&#39;, &#39;9&#39;, &#39;a&#39;, &#39;f&#39;, &#39;4&#39;, &#39;6&#39;, &#39;\0&#39;, &#39;\0&#39;, // lane1</span></span>
+<span class="giallo-l"><span> &#39;1&#39;, &#39;7&#39;, &#39;b&#39;, &#39;8&#39;, &#39;6&#39;, &#39;a&#39;, &#39;1&#39;, &#39;4&#39;, &#39;c&#39;, &#39;8&#39;, &#39;1&#39;, &#39;e&#39;, &#39;2&#39;, &#39;9&#39;, &#39;\0&#39;, &#39;\0&#39;] // lane2</span></span></code></pre>
+<p>This is done with <code>_mm256_shuffle_epi8</code> and following shuffle mask:</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="rust"><span class="giallo-l"><span style="color: #F97583;">let</span><span> shuffle_mask</span><span style="color: #F97583;">:</span><span> [</span><span style="color: #B392F0;">u8</span><span>;</span><span style="color: #79B8FF;"> 32</span><span>]</span><span style="color: #F97583;"> =</span><span> [</span></span>
+<span class="giallo-l"><span style="color: #79B8FF;">    0</span><span>,</span><span style="color: #79B8FF;"> 1</span><span>,</span><span style="color: #79B8FF;"> 2</span><span>,</span><span style="color: #79B8FF;"> 3</span><span>,</span><span style="color: #79B8FF;"> 4</span><span>,</span><span style="color: #79B8FF;"> 5</span><span>,</span><span style="color: #79B8FF;"> 6</span><span>,</span><span style="color: #79B8FF;"> 7</span><span>,</span><span style="color: #79B8FF;"> 9</span><span>,</span><span style="color: #79B8FF;"> 10</span><span>,</span><span style="color: #79B8FF;"> 11</span><span>,</span><span style="color: #79B8FF;"> 12</span><span>,</span><span style="color: #79B8FF;"> 14</span><span>,</span><span style="color: #79B8FF;"> 15</span><span>,</span><span style="color: #79B8FF;"> 1</span><span style="color: #F97583;"> &lt;&lt;</span><span style="color: #79B8FF;"> 7</span><span>,</span><span style="color: #79B8FF;"> 1</span><span style="color: #F97583;"> &lt;&lt;</span><span style="color: #79B8FF;"> 7</span><span>,</span></span>
+<span class="giallo-l"><span style="color: #79B8FF;">    0</span><span>,</span><span style="color: #79B8FF;"> 1</span><span>,</span><span style="color: #79B8FF;"> 3</span><span>,</span><span style="color: #79B8FF;"> 4</span><span>,</span><span style="color: #79B8FF;"> 5</span><span>,</span><span style="color: #79B8FF;"> 6</span><span>,</span><span style="color: #79B8FF;"> 8</span><span>,</span><span style="color: #79B8FF;"> 9</span><span>,</span><span style="color: #79B8FF;"> 10</span><span>,</span><span style="color: #79B8FF;"> 11</span><span>,</span><span style="color: #79B8FF;"> 12</span><span>,</span><span style="color: #79B8FF;"> 13</span><span>,</span><span style="color: #79B8FF;"> 14</span><span>,</span><span style="color: #79B8FF;"> 15</span><span>,</span><span style="color: #79B8FF;"> 1</span><span style="color: #F97583;"> &lt;&lt;</span><span style="color: #79B8FF;"> 7</span><span>,</span><span style="color: #79B8FF;"> 1</span><span style="color: #F97583;"> &lt;&lt;</span><span style="color: #79B8FF;"> 7</span><span>,</span></span>
+<span class="giallo-l"><span>];</span></span></code></pre>
+<p><code>1 &lt;&lt; 7</code> has a special meaning for <code>_mm256_shuffle_epi8</code>: destination byte is zeroed.</p>
+<p>Note that indexes in second lane are relative to this lane, not to the whole 32-byte register. This is the thing I forgot multiple times. Avx2 is 256-bit, but some operations are still two 128-bit operations in disguise.</p>
+<h3 id="hex-to-nibbles">Hex to nibbles<a class="post-anchor" href="#hex-to-nibbles" aria-label="Anchor link for: hex-to-nibbles"><span aria-hidden="true">#</span></a>
+</h3>
+<p>After removing dashes each byte is still ascii character. We need to convert it to number in range <code>[0, 15]</code>. For scalar code there is a nice branchless trick:</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="rust"><span class="giallo-l"><span style="color: #F97583;">let</span><span> x</span><span style="color: #F97583;"> =</span><span> (c</span><span style="color: #F97583;"> &amp;</span><span style="color: #79B8FF;"> 0x0f</span><span>)</span><span style="color: #F97583;"> +</span><span> (c</span><span style="color: #F97583;"> &gt;&gt;</span><span style="color: #79B8FF;"> 6</span><span>)</span><span style="color: #F97583;"> *</span><span style="color: #79B8FF;"> 9</span><span>;</span></span></code></pre>
+<p>Why does it work?</p>
+<p>For digits:</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="plain"><span class="giallo-l"><span>&#39;0&#39; = 0x30</span></span>
+<span class="giallo-l"><span>&#39;9&#39; = 0x39</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>c &amp; 0x0f = 0..9</span></span>
+<span class="giallo-l"><span>c &gt;&gt; 6   = 0</span></span></code></pre>
+<p>For lowercase letters:</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="plain"><span class="giallo-l"><span>&#39;a&#39; = 0x61</span></span>
+<span class="giallo-l"><span>&#39;f&#39; = 0x66</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>c &amp; 0x0f = 1..6</span></span>
+<span class="giallo-l"><span>c &gt;&gt; 6   = 1</span></span></code></pre>
+<p>So for letters we add 9 and get <code>10..15</code>.</p>
+<p>Unfortunately avx2 does not have <code>u8 * u8 -&gt; u8</code> instruction. However SIMD version is still simple:</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="rust"><span class="giallo-l"><span style="color: #F97583;">let</span><span> sub</span><span style="color: #F97583;"> =</span><span style="color: #B392F0;"> _mm256_subs_epu8</span><span>(shuffled,</span><span style="color: #B392F0;"> _mm256_set1_epi8</span><span>(</span><span style="color: #9ECBFF;">b&#39;0&#39;</span><span style="color: #F97583;"> as</span><span> _));</span></span>
+<span class="giallo-l"><span style="color: #F97583;">let</span><span> norm</span><span style="color: #F97583;"> =</span><span style="color: #B392F0;"> _mm256_and_si256</span><span>(</span></span>
+<span class="giallo-l"><span style="color: #B392F0;">    _mm256_set1_epi8</span><span>(</span><span style="color: #79B8FF;">39</span><span style="color: #F97583;"> as</span><span> _),</span></span>
+<span class="giallo-l"><span style="color: #B392F0;">    _mm256_cmpgt_epi8</span><span>(shuffled,</span><span style="color: #B392F0;"> _mm256_set1_epi8</span><span>(</span><span style="color: #9ECBFF;">b&#39;9&#39;</span><span style="color: #F97583;"> as</span><span> _)),</span></span>
+<span class="giallo-l"><span>);</span></span>
+<span class="giallo-l"><span style="color: #F97583;">let</span><span> num</span><span style="color: #F97583;"> =</span><span style="color: #B392F0;"> _mm256_subs_epu8</span><span>(sub, norm);</span></span></code></pre>
+<p>For digits <code>norm</code> is zero, so we just subtract <code>'0'</code>.</p>
+<p>For letters we subtract <code>'0'</code> and then subtract 39 more:</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="plain"><span class="giallo-l"><span>&#39;a&#39; - &#39;0&#39; = 49</span></span>
+<span class="giallo-l"><span>49 - 39 = 10</span></span></code></pre>
+<p>Now register contains nibbles:</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="plain"><span class="giallo-l"><span>[15, 11, 3, 1, 1, 5, 12, 3, 4, 9, 10, 15, 4, 6, 0, 0, ...]</span></span></code></pre><h3 id="packing-nibbles-into-bytes">Packing nibbles into bytes<a class="post-anchor" href="#packing-nibbles-into-bytes" aria-label="Anchor link for: packing-nibbles-into-bytes"><span aria-hidden="true">#</span></a>
+</h3>
+<p>We want to convert</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="plain"><span class="giallo-l"><span>[0xf, 0xb, 0x3, 0x1, ...]</span></span></code></pre>
+<p>into</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="plain"><span class="giallo-l"><span>[0xfb, 0x31, ...]</span></span></code></pre>
+<p>The idea is:</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="plain"><span class="giallo-l"><span>byte = (even_nibble &lt;&lt; 4) | odd_nibble</span></span></code></pre>
+<p>There is no direct shift for <code>u8</code> lanes in avx2. But since nibbles are small, we can shift as <code>u16</code> and then shuffle:</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="rust"><span class="giallo-l"><span style="color: #F97583;">let</span><span> high</span><span style="color: #F97583;"> =</span><span style="color: #B392F0;"> _mm256_shuffle_epi8</span><span>(</span></span>
+<span class="giallo-l"><span style="color: #B392F0;">    _mm256_slli_epi16</span><span>(num,</span><span style="color: #79B8FF;"> 4</span><span>),</span></span>
+<span class="giallo-l"><span style="color: #B392F0;">    _mm256_loadu_si256</span><span>(shuffle_even</span><span style="color: #F97583;">.</span><span style="color: #B392F0;">as_ptr</span><span>()</span><span style="color: #F97583;"> as</span><span> _),</span></span>
+<span class="giallo-l"><span>);</span></span>
+<span class="giallo-l"><span style="color: #F97583;">let</span><span> low</span><span style="color: #F97583;"> =</span><span style="color: #B392F0;"> _mm256_shuffle_epi8</span><span>(num,</span><span style="color: #B392F0;"> _mm256_loadu_si256</span><span>(shuffle_odd</span><span style="color: #F97583;">.</span><span style="color: #B392F0;">as_ptr</span><span>()</span><span style="color: #F97583;"> as</span><span> _));</span></span>
+<span class="giallo-l"><span style="color: #F97583;">let</span><span> num</span><span style="color: #F97583;"> =</span><span style="color: #B392F0;"> _mm256_or_si256</span><span>(high, low);</span></span></code></pre>
+<p>Masks are:</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="rust"><span class="giallo-l"><span style="color: #F97583;">let</span><span> shuffle_even</span><span style="color: #F97583;">:</span><span> [</span><span style="color: #B392F0;">u8</span><span>;</span><span style="color: #79B8FF;"> 32</span><span>]</span><span style="color: #F97583;"> =</span><span> [</span></span>
+<span class="giallo-l"><span style="color: #79B8FF;">    0</span><span>,</span><span style="color: #79B8FF;"> 2</span><span>,</span><span style="color: #79B8FF;"> 4</span><span>,</span><span style="color: #79B8FF;"> 6</span><span>,</span><span style="color: #79B8FF;"> 8</span><span>,</span><span style="color: #79B8FF;"> 10</span><span>,</span><span style="color: #79B8FF;"> 12</span><span>,</span><span style="color: #79B8FF;"> 14</span><span>,</span><span style="color: #79B8FF;"> 1</span><span style="color: #F97583;"> &lt;&lt;</span><span style="color: #79B8FF;"> 7</span><span>,</span><span style="color: #79B8FF;"> 1</span><span style="color: #F97583;"> &lt;&lt;</span><span style="color: #79B8FF;"> 7</span><span>,</span><span style="color: #79B8FF;"> 1</span><span style="color: #F97583;"> &lt;&lt;</span><span style="color: #79B8FF;"> 7</span><span>,</span><span style="color: #79B8FF;"> 1</span><span style="color: #F97583;"> &lt;&lt;</span><span style="color: #79B8FF;"> 7</span><span>,</span><span style="color: #79B8FF;"> 1</span><span style="color: #F97583;"> &lt;&lt;</span><span style="color: #79B8FF;"> 7</span><span>,</span><span style="color: #79B8FF;"> 1</span><span style="color: #F97583;"> &lt;&lt;</span><span style="color: #79B8FF;"> 7</span><span>,</span><span style="color: #79B8FF;"> 1</span><span style="color: #F97583;"> &lt;&lt;</span><span style="color: #79B8FF;"> 7</span><span>,</span><span style="color: #79B8FF;"> 1</span><span style="color: #F97583;"> &lt;&lt;</span><span style="color: #79B8FF;"> 7</span><span>,</span></span>
+<span class="giallo-l"><span style="color: #79B8FF;">    0</span><span>,</span><span style="color: #79B8FF;"> 2</span><span>,</span><span style="color: #79B8FF;"> 4</span><span>,</span><span style="color: #79B8FF;"> 6</span><span>,</span><span style="color: #79B8FF;"> 8</span><span>,</span><span style="color: #79B8FF;"> 10</span><span>,</span><span style="color: #79B8FF;"> 12</span><span>,</span><span style="color: #79B8FF;"> 14</span><span>,</span><span style="color: #79B8FF;"> 1</span><span style="color: #F97583;"> &lt;&lt;</span><span style="color: #79B8FF;"> 7</span><span>,</span><span style="color: #79B8FF;"> 1</span><span style="color: #F97583;"> &lt;&lt;</span><span style="color: #79B8FF;"> 7</span><span>,</span><span style="color: #79B8FF;"> 1</span><span style="color: #F97583;"> &lt;&lt;</span><span style="color: #79B8FF;"> 7</span><span>,</span><span style="color: #79B8FF;"> 1</span><span style="color: #F97583;"> &lt;&lt;</span><span style="color: #79B8FF;"> 7</span><span>,</span><span style="color: #79B8FF;"> 1</span><span style="color: #F97583;"> &lt;&lt;</span><span style="color: #79B8FF;"> 7</span><span>,</span><span style="color: #79B8FF;"> 1</span><span style="color: #F97583;"> &lt;&lt;</span><span style="color: #79B8FF;"> 7</span><span>,</span><span style="color: #79B8FF;"> 1</span><span style="color: #F97583;"> &lt;&lt;</span><span style="color: #79B8FF;"> 7</span><span>,</span><span style="color: #79B8FF;"> 1</span><span style="color: #F97583;"> &lt;&lt;</span><span style="color: #79B8FF;"> 7</span><span>,</span></span>
+<span class="giallo-l"><span>];</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #F97583;">let</span><span> shuffle_odd</span><span style="color: #F97583;">:</span><span> [</span><span style="color: #B392F0;">u8</span><span>;</span><span style="color: #79B8FF;"> 32</span><span>]</span><span style="color: #F97583;"> =</span><span> [</span></span>
+<span class="giallo-l"><span style="color: #79B8FF;">    1</span><span>,</span><span style="color: #79B8FF;"> 3</span><span>,</span><span style="color: #79B8FF;"> 5</span><span>,</span><span style="color: #79B8FF;"> 7</span><span>,</span><span style="color: #79B8FF;"> 9</span><span>,</span><span style="color: #79B8FF;"> 11</span><span>,</span><span style="color: #79B8FF;"> 13</span><span>,</span><span style="color: #79B8FF;"> 15</span><span>,</span><span style="color: #79B8FF;"> 1</span><span style="color: #F97583;"> &lt;&lt;</span><span style="color: #79B8FF;"> 7</span><span>,</span><span style="color: #79B8FF;"> 1</span><span style="color: #F97583;"> &lt;&lt;</span><span style="color: #79B8FF;"> 7</span><span>,</span><span style="color: #79B8FF;"> 1</span><span style="color: #F97583;"> &lt;&lt;</span><span style="color: #79B8FF;"> 7</span><span>,</span><span style="color: #79B8FF;"> 1</span><span style="color: #F97583;"> &lt;&lt;</span><span style="color: #79B8FF;"> 7</span><span>,</span><span style="color: #79B8FF;"> 1</span><span style="color: #F97583;"> &lt;&lt;</span><span style="color: #79B8FF;"> 7</span><span>,</span><span style="color: #79B8FF;"> 1</span><span style="color: #F97583;"> &lt;&lt;</span><span style="color: #79B8FF;"> 7</span><span>,</span><span style="color: #79B8FF;"> 1</span><span style="color: #F97583;"> &lt;&lt;</span><span style="color: #79B8FF;"> 7</span><span>,</span><span style="color: #79B8FF;"> 1</span><span style="color: #F97583;"> &lt;&lt;</span><span style="color: #79B8FF;"> 7</span><span>,</span></span>
+<span class="giallo-l"><span style="color: #79B8FF;">    1</span><span>,</span><span style="color: #79B8FF;"> 3</span><span>,</span><span style="color: #79B8FF;"> 5</span><span>,</span><span style="color: #79B8FF;"> 7</span><span>,</span><span style="color: #79B8FF;"> 9</span><span>,</span><span style="color: #79B8FF;"> 11</span><span>,</span><span style="color: #79B8FF;"> 13</span><span>,</span><span style="color: #79B8FF;"> 15</span><span>,</span><span style="color: #79B8FF;"> 1</span><span style="color: #F97583;"> &lt;&lt;</span><span style="color: #79B8FF;"> 7</span><span>,</span><span style="color: #79B8FF;"> 1</span><span style="color: #F97583;"> &lt;&lt;</span><span style="color: #79B8FF;"> 7</span><span>,</span><span style="color: #79B8FF;"> 1</span><span style="color: #F97583;"> &lt;&lt;</span><span style="color: #79B8FF;"> 7</span><span>,</span><span style="color: #79B8FF;"> 1</span><span style="color: #F97583;"> &lt;&lt;</span><span style="color: #79B8FF;"> 7</span><span>,</span><span style="color: #79B8FF;"> 1</span><span style="color: #F97583;"> &lt;&lt;</span><span style="color: #79B8FF;"> 7</span><span>,</span><span style="color: #79B8FF;"> 1</span><span style="color: #F97583;"> &lt;&lt;</span><span style="color: #79B8FF;"> 7</span><span>,</span><span style="color: #79B8FF;"> 1</span><span style="color: #F97583;"> &lt;&lt;</span><span style="color: #79B8FF;"> 7</span><span>,</span><span style="color: #79B8FF;"> 1</span><span style="color: #F97583;"> &lt;&lt;</span><span style="color: #79B8FF;"> 7</span><span>,</span></span>
+<span class="giallo-l"><span>];</span></span></code></pre>
+<p>What about the tail <code>3da4</code>? Initially I parsed it with scalar loop. It worked, but it was slower than I expected. Current version inserts these 4 bytes back into the vector before ascii-to-nibble conversion:</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="rust"><span class="giallo-l"><span style="color: #F97583;">let</span><span> shuffled</span><span style="color: #F97583;"> =</span><span style="color: #B392F0;"> _mm256_insert_epi16</span><span>(</span></span>
+<span class="giallo-l"><span>    shuffled,</span></span>
+<span class="giallo-l"><span>    (ptr</span><span style="color: #F97583;">.</span><span style="color: #B392F0;">add</span><span>(i</span><span style="color: #F97583;"> *</span><span style="color: #79B8FF;"> 37</span><span style="color: #F97583;"> +</span><span style="color: #79B8FF;"> 32</span><span>)</span><span style="color: #F97583;"> as *const</span><span style="color: #B392F0;"> u16</span><span>)</span><span style="color: #F97583;">.</span><span style="color: #B392F0;">read</span><span>()</span><span style="color: #F97583;"> as</span><span> _,</span></span>
+<span class="giallo-l"><span style="color: #79B8FF;">    15</span><span>,</span></span>
+<span class="giallo-l"><span>);</span></span>
+<span class="giallo-l"><span style="color: #F97583;">let</span><span> shuffled</span><span style="color: #F97583;"> =</span><span style="color: #B392F0;"> _mm256_insert_epi16</span><span>(</span></span>
+<span class="giallo-l"><span>    shuffled,</span></span>
+<span class="giallo-l"><span>    (ptr</span><span style="color: #F97583;">.</span><span style="color: #B392F0;">add</span><span>(i</span><span style="color: #F97583;"> *</span><span style="color: #79B8FF;"> 37</span><span style="color: #F97583;"> +</span><span style="color: #79B8FF;"> 34</span><span>)</span><span style="color: #F97583;"> as *const</span><span style="color: #B392F0;"> u16</span><span>)</span><span style="color: #F97583;">.</span><span style="color: #B392F0;">read</span><span>()</span><span style="color: #F97583;"> as</span><span> _,</span></span>
+<span class="giallo-l"><span style="color: #79B8FF;">    7</span><span>,</span></span>
+<span class="giallo-l"><span>);</span></span></code></pre>
+<p>This looks a bit weird, but the idea is simple: we have two zero holes after shuffle, one in each lane. Tail bytes are inserted into those holes, so the same SIMD conversion and packing code handles all 32 hex digits. No scalar tail loop.</p>
+<p>After this step each lane contains 8 useful bytes:</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="plain"><span class="giallo-l"><span>lane1: fb 31 15 c3 49 af 46 a4 ...</span></span>
+<span class="giallo-l"><span>lane2: 17 b8 6a 14 c8 1e 29 3d ...</span></span></code></pre><h3 id="combining-lanes-into-u128">Combining lanes into <code>u128</code><a class="post-anchor" href="#combining-lanes-into-u128" aria-label="Anchor link for: combining-lanes-into-u128"><span aria-hidden="true">#</span></a>
+</h3>
+<p>Next problem is to construct one <code>u128</code> out of two lanes. I used transmute to get lower 128-bit lane as <code>u128</code>:</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="rust"><span class="giallo-l"><span style="color: #F97583;">fn</span><span style="color: #B392F0;"> m128i_to_u128</span><span>(vector</span><span style="color: #F97583;">:</span><span> __m128i)</span><span style="color: #F97583;"> -&gt;</span><span style="color: #B392F0;"> u128</span><span> {</span></span>
+<span class="giallo-l"><span style="color: #F97583;">    unsafe</span><span> {</span><span style="color: #B392F0;"> std</span><span style="color: #F97583;">::</span><span style="color: #B392F0;">mem</span><span style="color: #F97583;">::</span><span style="color: #B392F0;">transmute</span><span>(vector) }</span></span>
+<span class="giallo-l"><span>}</span></span></code></pre>
+<p>Then:</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="rust"><span class="giallo-l"><span style="color: #F97583;">let</span><span> upper</span><span style="color: #F97583;"> =</span><span style="color: #B392F0;"> m128i_to_u128</span><span>(</span><span style="color: #B392F0;">_mm256_castsi256_si128</span><span>(num));</span></span>
+<span class="giallo-l"><span style="color: #F97583;">let</span><span> low</span><span style="color: #F97583;"> =</span><span style="color: #B392F0;"> m128i_to_u128</span><span>(</span><span style="color: #B392F0;">_mm256_extracti128_si256</span><span>(num,</span><span style="color: #79B8FF;"> 1</span><span>));</span></span></code></pre>
+<p>Values in lanes are in byte order, but integer on x86 is little-endian, so byte swap is required. Also note that last two bytes are in "wrong" lanes because of tail insertion. Current code handles this with a couple of masks and shifts:</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="rust"><span class="giallo-l"><span style="color: #F97583;">let</span><span> result</span><span style="color: #F97583;"> =</span><span> (upper</span><span style="color: #F97583;">.</span><span style="color: #B392F0;">swap_bytes</span><span>()</span><span style="color: #F97583;"> &amp; !</span><span>(</span><span style="color: #79B8FF;">0xFF</span><span style="color: #B392F0;">u128</span><span style="color: #F97583;"> &lt;&lt;</span><span> (</span><span style="color: #79B8FF;">8</span><span style="color: #F97583;"> *</span><span style="color: #79B8FF;"> 8</span><span>)))</span></span>
+<span class="giallo-l"><span style="color: #F97583;">    |</span><span> (low</span><span style="color: #F97583;">.</span><span style="color: #B392F0;">swap_bytes</span><span>()</span><span style="color: #F97583;"> &gt;&gt;</span><span> (</span><span style="color: #79B8FF;">64</span><span style="color: #F97583;"> -</span><span style="color: #79B8FF;"> 8</span><span>))</span></span>
+<span class="giallo-l"><span style="color: #F97583;">    |</span><span> ((upper</span><span style="color: #F97583;">.</span><span style="color: #B392F0;">swap_bytes</span><span>()</span><span style="color: #F97583;"> &gt;&gt;</span><span> (</span><span style="color: #79B8FF;">8</span><span style="color: #F97583;"> *</span><span style="color: #79B8FF;"> 8</span><span>))</span><span style="color: #F97583;"> &amp;</span><span style="color: #79B8FF;"> 0xFF</span><span>);</span></span></code></pre>
+<p>This expression is ugly, but it removed scalar tail handling from hot loop. In my measurements it was worth it.</p>
+<p>And that's it. UUID string is now one <code>u128</code>.</p>
+<h2 id="formatting">Formatting<a class="post-anchor" href="#formatting" aria-label="Anchor link for: formatting"><span aria-hidden="true">#</span></a>
+</h2>
+<p>Formatting is the same thing in reverse. Given one <code>u128</code>, convert it to bytes, split every byte into two nibbles and convert nibbles to ascii characters.</p>
+<p>For one byte:</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="plain"><span class="giallo-l"><span>0xfb -&gt; 0x0f 0x0b -&gt; &#39;f&#39; &#39;b&#39;</span></span></code></pre>
+<p>The nice SIMD trick here is <code>_mm256_unpacklo_epi8</code>. Suppose we have two vectors:</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="plain"><span class="giallo-l"><span>hi = [h0, h1, h2, h3, ...]</span></span>
+<span class="giallo-l"><span>lo = [l0, l1, l2, l3, ...]</span></span></code></pre>
+<p>Then <code>_mm256_unpacklo_epi8(hi, lo)</code> zips them:</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="plain"><span class="giallo-l"><span>[h0, l0, h1, l1, h2, l2, ...]</span></span></code></pre>
+<p>Which is exactly what hexadecimal string wants.</p>
+<p>High and low nibbles are computed like:</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="rust"><span class="giallo-l"><span style="color: #F97583;">let</span><span> hi</span><span style="color: #F97583;"> =</span><span style="color: #B392F0;"> _mm256_and_si256</span><span>(</span><span style="color: #B392F0;">_mm256_set1_epi8</span><span>(</span><span style="color: #79B8FF;">0xf</span><span>),</span><span style="color: #B392F0;"> _mm256_srli_epi16</span><span>(chunk,</span><span style="color: #79B8FF;"> 4</span><span>));</span></span>
+<span class="giallo-l"><span style="color: #F97583;">let</span><span> low</span><span style="color: #F97583;"> =</span><span style="color: #B392F0;"> _mm256_and_si256</span><span>(</span><span style="color: #B392F0;">_mm256_set1_epi8</span><span>(</span><span style="color: #79B8FF;">0xf</span><span>), chunk);</span></span></code></pre>
+<p>Again, there is no <code>u8</code> shift, so <code>u16</code> shift + mask is used.</p>
+<p>Then:</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="rust"><span class="giallo-l"><span style="color: #F97583;">let</span><span> lo_ascii</span><span style="color: #F97583;"> =</span><span style="color: #B392F0;"> _mm256_unpacklo_epi8</span><span>(hi, low);</span></span>
+<span class="giallo-l"><span style="color: #F97583;">let</span><span> hi_ascii</span><span style="color: #F97583;"> =</span><span style="color: #B392F0;"> _mm256_unpackhi_epi8</span><span>(hi, low);</span></span>
+<span class="giallo-l"><span style="color: #F97583;">let</span><span> res</span><span style="color: #F97583;"> =</span><span style="color: #B392F0;"> _mm256_inserti128_si256</span><span>(lo_ascii,</span><span style="color: #B392F0;"> _mm256_castsi256_si128</span><span>(hi_ascii),</span><span style="color: #79B8FF;"> 1</span><span>);</span></span></code></pre>
+<p>At this point <code>res</code> contains 32 bytes, each byte is value in range <code>[0, 15]</code>.</p>
+<p>To convert nibbles to ascii:</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="rust"><span class="giallo-l"><span style="color: #F97583;">let</span><span> norm</span><span style="color: #F97583;"> =</span><span style="color: #B392F0;"> _mm256_and_si256</span><span>(</span></span>
+<span class="giallo-l"><span style="color: #B392F0;">    _mm256_set1_epi8</span><span>(</span><span style="color: #79B8FF;">39</span><span style="color: #F97583;"> as</span><span> _),</span></span>
+<span class="giallo-l"><span style="color: #B392F0;">    _mm256_cmpgt_epi8</span><span>(res,</span><span style="color: #B392F0;"> _mm256_set1_epi8</span><span>(</span><span style="color: #79B8FF;">9</span><span style="color: #F97583;"> as</span><span> _)),</span></span>
+<span class="giallo-l"><span>);</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #F97583;">let</span><span> add</span><span style="color: #F97583;"> =</span><span style="color: #B392F0;"> _mm256_add_epi8</span><span>(res,</span><span style="color: #B392F0;"> _mm256_set1_epi8</span><span>(</span><span style="color: #9ECBFF;">b&#39;0&#39;</span><span style="color: #F97583;"> as</span><span> _));</span></span>
+<span class="giallo-l"><span style="color: #F97583;">let</span><span> num</span><span style="color: #F97583;"> =</span><span style="color: #B392F0;"> _mm256_add_epi8</span><span>(add, norm);</span></span></code></pre>
+<p>For numbers <code>0..9</code>, add <code>'0'</code>. For letters <code>10..15</code>, add <code>'0' + 39</code>, which is the same as <code>'a' - 10</code>.</p>
+<h3 id="dashes">Dashes<a class="post-anchor" href="#dashes" aria-label="Anchor link for: dashes"><span aria-hidden="true">#</span></a>
+</h3>
+<p>UUID string has dashes at fixed positions:</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="plain"><span class="giallo-l"><span>8, 13, 18, 23</span></span></code></pre>
+<p>So I use another shuffle to create holes and then OR dashes into those holes.</p>
+<p>There was one more cross-lane problem here. Output position <code>16</code> and <code>17</code> need input bytes <code>14</code> and <code>15</code>, but output position <code>16</code> belongs to second 128-bit lane of avx2 register. <code>_mm256_shuffle_epi8</code> cannot take bytes from previous lane.</p>
+<p>I solved it with a small fixup:</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="rust"><span class="giallo-l"><span style="color: #B392F0;">_mm256_storeu_si256</span><span>(to</span><span style="color: #F97583;"> as</span><span> _, dashes);</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>(to</span><span style="color: #F97583;">.</span><span style="color: #B392F0;">add</span><span>(</span><span style="color: #79B8FF;">32</span><span>)</span><span style="color: #F97583;"> as *mut</span><span style="color: #B392F0;"> u32</span><span>)</span><span style="color: #F97583;">.</span><span style="color: #B392F0;">write</span><span>(</span><span style="color: #B392F0;">_mm256_extract_epi32</span><span>(num,</span><span style="color: #79B8FF;"> 7</span><span>)</span><span style="color: #F97583;"> as</span><span> _);</span></span>
+<span class="giallo-l"><span>(to</span><span style="color: #F97583;">.</span><span style="color: #B392F0;">add</span><span>(</span><span style="color: #79B8FF;">16</span><span>)</span><span style="color: #F97583;"> as *mut</span><span style="color: #B392F0;"> u16</span><span>)</span><span style="color: #F97583;">.</span><span style="color: #B392F0;">write</span><span>(</span><span style="color: #B392F0;">_mm256_extract_epi16</span><span>(num,</span><span style="color: #79B8FF;"> 7</span><span>)</span><span style="color: #F97583;"> as</span><span> _);</span></span>
+<span class="giallo-l"><span>to</span><span style="color: #F97583;">.</span><span style="color: #B392F0;">add</span><span>(</span><span style="color: #79B8FF;">36</span><span>)</span><span style="color: #F97583;">.</span><span style="color: #B392F0;">write</span><span>(</span><span style="color: #9ECBFF;">b&#39;</span><span style="color: #79B8FF;">\n</span><span style="color: #9ECBFF;">&#39;</span><span>);</span></span></code></pre>
+<p>Not the most beautiful code in the world, but it works.</p>
+
+        </article>
+        <nav class="post-navigation">
+            <header class="post-navigation-title">
+                <h2>Read More Posts</h2>
+                <hr>
+            </header>
+            <div class="post-navigation-buttons">
+                <a rel="prev" href="https://pskrgag.github.io/post/type-safe-packed-pointers/" aria-label="Prev article" aria-describedby="prev-title">
+                    [<span id="prev-title">Type safe packed pointers in C</span>]&nbsp;&gt;
+                </a>
+            </div>
+        </nav>
+    </main>
+    <footer class="footer">
+        <p class="copyright">
+            <span>© <time>2026</time></span>
+            <span>Powered by <a rel="external" href="https://www.getzola.org">Zola</a></span>
+            <span>Theme by <a rel="external" href="https://eyalkalderon.com">ebkalderon</a></span>
+        </p>
+    </footer>
+</body>
+
+</html>

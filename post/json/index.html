@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src-attr 'unsafe-inline'">
+
+    <title>Subset of JSON parser in 150 lines of Haskell code | Random notes from OS developer</title>
+
+    <link rel="preload" href="https://pskrgag.github.io/fonts/FiraCode-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+    <link rel="preload" href="https://pskrgag.github.io/fonts/FiraCode-Bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://pskrgag.github.io/css/style.css?h=f91747564993ff5cb597">
+    <script src="https://pskrgag.github.io/js/auto-close-popover-on-resize.js?h=4ef87d6fc7b98b22e044" defer></script>
+    <script src="https://pskrgag.github.io/js/copy-code-to-clipboard.js?h=6eec6d5a29e934c1de32" defer></script>
+
+    <link rel="canonical" href="https://pskrgag.github.io/post/json/">
+    
+    <meta name="description" content="I learned a bit of Haskell">
+    <meta name="robots" content="index, follow">
+    <meta name="theme-color" content="#211f1a">
+    <meta name="color-scheme" content="dark">
+
+    <meta property="og:title" content="Subset of JSON parser in 150 lines of Haskell code">
+    <meta property="og:type" content="article">
+    <meta property="og:url" content="https://pskrgag.github.io/post/json/">
+    <meta property="og:description" content="I learned a bit of Haskell">
+    <meta property="og:site_name" content="Random notes from OS developer">
+    <meta property="og:updated_time" content="2026-05-17T16:31:15.798017552+00:00">
+    <meta property="article:published_time" content="2024-05-10T00:00:00+00:00">
+    <meta name="twitter:label2" content="Reading time">
+    <meta name="twitter:data2" content="7 min">
+</head>
+
+<body class="layout-center" data-theme="terminus">
+    <header class="header">
+        <div class="header-container">
+            <span class="header-logo-container">
+                <a href="https://pskrgag.github.io">
+                    <span class="logo">Random notes from OS developer</span>
+                </a>
+            </span>
+        </div>
+    </header>
+    <main id="main">
+        <article class="post content">
+            <header>
+                <h1 class="post-title">
+                    <a href="https://pskrgag.github.io/post/json/">Subset of JSON parser in 150 lines of Haskell code</a>
+                </h1>
+                <ul class="post-meta hidden">
+                    <li title="Published on 2024-05-10"><time datetime="2024-05-10">2024.05.10</time></li>
+                    <li role="separator" aria-hidden="true">::</li>
+                    <li title="1360 words"><time datetime="PT7M">7 min</time> read</li>
+                </ul>
+            </header>
+
+<h2 id="intro">Intro<a class="post-anchor" href="#intro" aria-label="Anchor link for: intro"><span aria-hidden="true">#</span></a>
+</h2>
+<p>Recently I have started to learn Haskell at my spare time by solving <a rel="external" href="https://www.codewars.com/dashboard">codewars</a> problems
+time-to-time. This post is about my solution for <a rel="external" href="https://www.codewars.com/kata/55aa170b54c32468c30000a9">this kata</a>, since I was
+impressed by power of applicative parsing and want to document things I have learned during solving.</p>
+<p>NOTE: I am no way an expert in Haskell or FP languages, so my solution might be not the best/cleanest/etc.</p>
+<h2 id="the-task">The task<a class="post-anchor" href="#the-task" aria-label="Anchor link for: the-task"><span aria-hidden="true">#</span></a>
+</h2>
+<p>The task is simple: implement a parser for a subset of JSON. The only big difference from real json is no support for exponential
+numbers and unicode characters.</p>
+<p>Language task suggest to implement has following (BNF)[https://en.wikipedia.org/wiki/Backus%E2%80%93Naur_form]:</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="plain"><span class="giallo-l"><span>string ::= &quot;&quot; | &quot;chars&quot;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>chars  ::= char | char chars</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>char   ::= &lt;ASCII character except for &quot;&gt;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>number ::= int | int frac | &#39;-&#39; number</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>int    ::= digits</span></span>
+<span class="giallo-l"><span>frac   ::= &#39;.&#39; digits</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>digits ::= digit | digit digits</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>digit  ::= &#39;0&#39; | &#39;1&#39; | &#39;2&#39; | &#39;3&#39; | &#39;4&#39; | &#39;5&#39; | &#39;6&#39; | &#39;7&#39; | &#39;8&#39; | &#39;9&#39; | &#39;0&#39;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>object  ::= &quot;{}&quot; | &#39;{&#39; members &#39;}&#39;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>members ::= pair | pair &#39;,&#39; members</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>pair    ::= string &#39;:&#39; value</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>array   ::= &quot;[]&quot; | &#39;[&#39; elements &#39;]&#39;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>elements ::= value | value &#39;,&#39; elements</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>value = string | number | object | array | &quot;true&quot; | &quot;false&quot; | &quot;null&quot;</span></span></code></pre>
+<p>White-space characters are ignored.</p>
+<p>And it's required to implement function <code>f :: String -&gt; Value</code>, where <code>Value</code> defined as follows:</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="haskell"><span class="giallo-l"><span style="color: #F97583;">data Value</span></span>
+<span class="giallo-l"><span style="color: #F97583;">  =</span><span style="color: #79B8FF;"> String</span><span style="color: #F97583;"> String</span></span>
+<span class="giallo-l"><span style="color: #F97583;">  |</span><span style="color: #79B8FF;"> Number</span><span style="color: #F97583;"> Double</span></span>
+<span class="giallo-l"><span style="color: #F97583;">  |</span><span style="color: #79B8FF;"> Object</span><span> [(</span><span style="color: #F97583;">Value</span><span>,</span><span style="color: #F97583;"> Value</span><span>)]</span><span style="color: #6A737D;"> -- an association list -- only a `String` is valid as the index `Value`</span></span>
+<span class="giallo-l"><span style="color: #F97583;">  |</span><span style="color: #79B8FF;"> Array</span><span> [</span><span style="color: #F97583;">Value</span><span>]</span><span style="color: #6A737D;"> -- not limited to identical primitive datatypes</span></span>
+<span class="giallo-l"><span style="color: #F97583;">  |</span><span style="color: #79B8FF;"> Boolean</span><span style="color: #F97583;"> Bool</span><span style="color: #6A737D;"> -- either `True` or `False`</span></span>
+<span class="giallo-l"><span style="color: #F97583;">  |</span><span style="color: #79B8FF;"> Null</span></span>
+<span class="giallo-l"><span style="color: #F97583;">  deriving</span><span> (</span><span style="color: #F97583;">Show</span><span>)</span></span></code></pre><h2 id="applicative-parser">Applicative Parser<a class="post-anchor" href="#applicative-parser" aria-label="Anchor link for: applicative-parser"><span aria-hidden="true">#</span></a>
+</h2>
+<p>Parser by its nature is a function that takes an input string and produces some value, leaving unparsed string untouched. Based on this
+parser type is defined as following:</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="haskell"><span class="giallo-l"><span style="color: #F97583;">newtype Parser</span><span> a</span><span style="color: #F97583;"> =</span><span style="color: #79B8FF;"> Parser</span><span> {runParser</span><span style="color: #F97583;"> :: String -&gt; Maybe</span><span> (a,</span><span style="color: #F97583;"> String</span><span>)}</span></span></code></pre>
+<p><code>runParser</code> is a function that consumes part of the input string and maybe produces pair of value of type <code>a</code> and rest of the unparsed string. In our case generic type
+<code>a</code> will be a <code>Value</code> introduced in previous paragraph.</p>
+<h3 id="basic-parsing">Basic Parsing<a class="post-anchor" href="#basic-parsing" aria-label="Anchor link for: basic-parsing"><span aria-hidden="true">#</span></a>
+</h3>
+<p>Using type introduced above it's possible to start parsing right away. The easiest thing to implement is to parser for character by predicate</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="haskell"><span class="giallo-l"><span style="color: #B392F0;">parseCond</span><span style="color: #F97583;"> ::</span><span> (</span><span style="color: #F97583;">Char -&gt; Bool</span><span>)</span><span style="color: #F97583;"> -&gt; Parser Char</span></span>
+<span class="giallo-l"><span>parseCond fn </span><span style="color: #F97583;">=</span><span style="color: #79B8FF;"> Parser</span><span> helper</span></span>
+<span class="giallo-l"><span style="color: #F97583;">  where</span></span>
+<span class="giallo-l"><span>    helper </span><span style="color: #79B8FF;">[]</span><span style="color: #F97583;"> =</span><span style="color: #79B8FF;"> Nothing</span></span>
+<span class="giallo-l"><span>    helper (x </span><span style="color: #F97583;">:</span><span> xs)</span></span>
+<span class="giallo-l"><span style="color: #F97583;">      |</span><span> fn x </span><span style="color: #F97583;">=</span><span style="color: #79B8FF;"> Just</span><span> (x, xs)</span></span>
+<span class="giallo-l"><span style="color: #F97583;">      |</span><span> otherwise </span><span style="color: #F97583;">=</span><span style="color: #79B8FF;"> Nothing</span></span></code></pre>
+<p>Which can be used like</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="haskell"><span class="giallo-l"><span>λ</span><span style="color: #F97583;">&gt;</span><span> runParser (parseCond (</span><span style="color: #F97583;">==</span><span style="color: #9ECBFF;"> &#39;a&#39;</span><span>))</span><span style="color: #9ECBFF;"> &quot;abcd&quot;</span></span>
+<span class="giallo-l"><span style="color: #79B8FF;">Just</span><span> (</span><span style="color: #9ECBFF;">&#39;a&#39;</span><span>,</span><span style="color: #9ECBFF;">&quot;bcd&quot;</span><span>)</span></span></code></pre>
+<p>As you can see, parser consumed one char and returned rest of the string unchanged. If predicate return <code>False</code> then parsing fails:</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="haskell"><span class="giallo-l"><span>λ</span><span style="color: #F97583;">&gt;</span><span> runParser (parseCond (</span><span style="color: #F97583;">==</span><span style="color: #9ECBFF;"> &#39;a&#39;</span><span>))</span><span style="color: #9ECBFF;"> &quot;bda&quot;</span></span>
+<span class="giallo-l"><span style="color: #79B8FF;">Nothing</span></span></code></pre>
+<p>Since it will be required to parse single characters a lot, let's define simple wrapper for parsing one character:</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="haskell"><span class="giallo-l"><span style="color: #B392F0;">parseChar</span><span style="color: #F97583;"> :: Char -&gt; Parser Char</span></span>
+<span class="giallo-l"><span>parseChar x </span><span style="color: #F97583;">=</span><span> parseCond (</span><span style="color: #F97583;">==</span><span> x)</span></span></code></pre>
+<p>Next thing it's required to implement is string parser. A function to parse a string has type <code>f :: [Char] -&gt; Parser [Char]</code> and we already have <code>Parser Char</code>.
+There should be a way to convert one to another! Hoogle points out there a <code>traverse</code> function, which has following signature:</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="haskell"><span class="giallo-l"><span style="color: #F97583;">class</span><span> (</span><span style="color: #F97583;">Functor</span><span> t,</span><span style="color: #F97583;"> Foldable</span><span> t)</span><span style="color: #F97583;"> =&gt; Traversable</span><span> t</span><span style="color: #F97583;"> where</span></span>
+<span class="giallo-l"><span style="color: #B392F0;">  traverse</span><span style="color: #F97583;"> :: Applicative</span><span> f</span><span style="color: #F97583;"> =&gt;</span><span> (a</span><span style="color: #F97583;"> -&gt;</span><span> f b)</span><span style="color: #F97583;"> -&gt;</span><span> t a</span><span style="color: #F97583;"> -&gt;</span><span> f (t b)</span></span></code></pre>
+<p>Since strings are just list of <code>Char</code>, and list implements <code>Traversable</code>, this function does exactly what we want. If we change <code>t</code> to <code>[]</code>, <code>f</code> to <code>Parser</code> and
+<code>a</code> and <code>b</code> to <code>Char</code>:</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="haskell"><span class="giallo-l"><span style="color: #B392F0;">  traverse</span><span style="color: #F97583;"> :: Applicative Parser =&gt;</span><span> (</span><span style="color: #F97583;">Char -&gt; Parser Char</span><span>)</span><span style="color: #F97583;"> -&gt;</span><span> [</span><span style="color: #F97583;">Char</span><span>]</span><span style="color: #F97583;"> -&gt; Parser</span><span> ([</span><span style="color: #F97583;">Char</span><span>])</span></span></code></pre>
+<p>Bingo! There is one small problem left -- <code>Parser</code> should implement <code>Applicative</code>.</p>
+<h3 id="making-parser-applicative">Making parser applicative<a class="post-anchor" href="#making-parser-applicative" aria-label="Anchor link for: making-parser-applicative"><span aria-hidden="true">#</span></a>
+</h3>
+<p>Let's look what <code>Applicative</code> is. Ghci says:</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="haskell"><span class="giallo-l"><span>λ</span><span style="color: #F97583;">&gt; :</span><span>info </span><span style="color: #79B8FF;">Applicative</span><span> </span></span>
+<span class="giallo-l"><span style="color: #F97583;">type Applicative ::</span><span> (</span><span style="color: #F97583;">* -&gt; *</span><span>)</span><span style="color: #F97583;"> -&gt; Constraint</span></span>
+<span class="giallo-l"><span style="color: #F97583;">class Functor</span><span> f</span><span style="color: #F97583;"> =&gt; Applicative</span><span> f</span><span style="color: #F97583;"> where</span></span>
+<span class="giallo-l"><span style="color: #B392F0;">  pure</span><span style="color: #F97583;"> ::</span><span> a</span><span style="color: #F97583;"> -&gt;</span><span> f a</span></span>
+<span class="giallo-l"><span style="color: #B392F0;">  (&lt;*&gt;)</span><span style="color: #F97583;"> ::</span><span> f (a</span><span style="color: #F97583;"> -&gt;</span><span> b)</span><span style="color: #F97583;"> -&gt;</span><span> f a</span><span style="color: #F97583;"> -&gt;</span><span> f b</span></span>
+<span class="giallo-l"><span style="color: #B392F0;">  GHC.Base.</span><span>liftA2 </span><span style="color: #F97583;">::</span><span> (a</span><span style="color: #F97583;"> -&gt;</span><span> b</span><span style="color: #F97583;"> -&gt;</span><span> c)</span><span style="color: #F97583;"> -&gt;</span><span> f a</span><span style="color: #F97583;"> -&gt;</span><span> f b</span><span style="color: #F97583;"> -&gt;</span><span> f c</span></span>
+<span class="giallo-l"><span style="color: #B392F0;">  (*&gt;)</span><span style="color: #F97583;"> ::</span><span> f a</span><span style="color: #F97583;"> -&gt;</span><span> f b</span><span style="color: #F97583;"> -&gt;</span><span> f b</span></span>
+<span class="giallo-l"><span style="color: #B392F0;">  (&lt;*)</span><span style="color: #F97583;"> ::</span><span> f a</span><span style="color: #F97583;"> -&gt;</span><span> f b</span><span style="color: #F97583;"> -&gt;</span><span> f a</span></span>
+<span class="giallo-l"><span>  {-#</span><span style="color: #F97583;"> MINIMAL</span><span> pure, ((&lt;*&gt;) | liftA2) #-}</span></span></code></pre>
+<p>To <code>Parser</code> type to be applicative it should be a <code>Functor</code>. Ok, but what is <code>Functor</code>?</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="haskell"><span class="giallo-l"><span style="color: #F97583;">type Functor ::</span><span> (</span><span style="color: #F97583;">* -&gt; *</span><span>)</span><span style="color: #F97583;"> -&gt; Constraint</span></span>
+<span class="giallo-l"><span style="color: #F97583;">class Functor</span><span> f</span><span style="color: #F97583;"> where</span></span>
+<span class="giallo-l"><span style="color: #B392F0;">  fmap</span><span style="color: #F97583;"> ::</span><span> (a</span><span style="color: #F97583;"> -&gt;</span><span> b)</span><span style="color: #F97583;"> -&gt;</span><span> f a</span><span style="color: #F97583;"> -&gt;</span><span> f b</span></span>
+<span class="giallo-l"><span style="color: #B392F0;">  (&lt;$)</span><span style="color: #F97583;"> ::</span><span> a</span><span style="color: #F97583;"> -&gt;</span><span> f b</span><span style="color: #F97583;"> -&gt;</span><span> f a</span></span>
+<span class="giallo-l"><span>  {-#</span><span style="color: #F97583;"> MINIMAL</span><span> fmap #-}</span></span></code></pre>
+<p>To be a <code>Functor</code> instance, <code>Parser</code> type should implement one function called <code>fmap</code>. Let's do it!</p>
+<h4 id="functor">Functor<a class="post-anchor" href="#functor" aria-label="Anchor link for: functor"><span aria-hidden="true">#</span></a>
+</h4>
+<p>To better understand what specific typeclasse does, I like to see what other types implement it and play a bit with them. Lucky me, <code>Maybe</code> implements
+<code>Functor</code>.</p>
+<p><code>fmap</code> has following signature <code>fmap :: (a -&gt; b) -&gt; f a -&gt; f b</code>, which means it "injects" a function inside of a container, that contains <code>a</code> and produces
+new container that contains <code>b</code>. As an example for <code>Maybe</code>:</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="haskell"><span class="giallo-l"><span>λ</span><span style="color: #F97583;">&gt;</span><span> fmap (</span><span style="color: #F97583;">+</span><span style="color: #79B8FF;"> 1</span><span>) (</span><span style="color: #79B8FF;">Just 1</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #79B8FF;">Just 2</span></span>
+<span class="giallo-l"><span>λ</span><span style="color: #F97583;">&gt;</span><span> fmap (</span><span style="color: #F97583;">+</span><span style="color: #79B8FF;"> 1</span><span>) (</span><span style="color: #79B8FF;">Nothing</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #79B8FF;">Nothing</span></span>
+<span class="giallo-l"><span>λ</span><span style="color: #F97583;">&gt;</span><span> fmap ord (</span><span style="color: #79B8FF;">Just</span><span style="color: #9ECBFF;"> &#39;a&#39;</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #79B8FF;">Just 97</span></span></code></pre>
+<p>If you are familiar with Rust, <code>fmap</code> is like <a rel="external" href="https://doc.rust-lang.org/std/option/enum.Option.html#method.and_then"><code>and_then()</code></a> for Options.
+For our <code>Parser</code> type it means, that it's will be possible to change produced value to another one in case of successful parsing.</p>
+<p><code>Functor</code> instance looks like:</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="haskell"><span class="giallo-l"><span style="color: #F97583;">instance Functor Parser where</span></span>
+<span class="giallo-l"><span>  fmap fn (</span><span style="color: #79B8FF;">Parser</span><span> f)</span><span style="color: #F97583;"> =</span></span>
+<span class="giallo-l"><span style="color: #79B8FF;">    Parser</span></span>
+<span class="giallo-l"><span>      (</span><span style="color: #F97583;"> \</span><span>x </span><span style="color: #F97583;">-&gt;</span></span>
+<span class="giallo-l"><span style="color: #F97583;">          case</span><span> f x </span><span style="color: #F97583;">of</span></span>
+<span class="giallo-l"><span style="color: #79B8FF;">            Just</span><span> (val, other)</span><span style="color: #F97583;"> -&gt;</span><span style="color: #79B8FF;"> Just</span><span> (fn val, other)</span></span>
+<span class="giallo-l"><span style="color: #79B8FF;">            Nothing</span><span style="color: #F97583;"> -&gt;</span><span style="color: #79B8FF;"> Nothing</span></span>
+<span class="giallo-l"><span>      )</span></span></code></pre>
+<p>Also it can be rewritten more cleanly in <code>do</code> notation, since <code>Maybe</code> implement <code>Monad</code></p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="haskell"><span class="giallo-l"><span style="color: #F97583;">instance Functor Parser where</span></span>
+<span class="giallo-l"><span>  fmap fn (</span><span style="color: #79B8FF;">Parser</span><span> f)</span><span style="color: #F97583;"> =</span></span>
+<span class="giallo-l"><span style="color: #79B8FF;">    Parser</span></span>
+<span class="giallo-l"><span>      (</span><span style="color: #F97583;"> \</span><span>x </span><span style="color: #F97583;">-&gt;</span></span>
+<span class="giallo-l"><span style="color: #F97583;">          do</span></span>
+<span class="giallo-l"><span>            (v, other)</span><span style="color: #F97583;"> &lt;-</span><span> f x</span></span>
+<span class="giallo-l"><span>            return (fn v, other)</span></span>
+<span class="giallo-l"><span>      )</span></span></code></pre>
+<p>Now it's possible to do following:</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="haskell"><span class="giallo-l"><span>λ</span><span style="color: #F97583;">&gt;</span><span> runParser (fmap ord (parseChar </span><span style="color: #9ECBFF;">&#39;a&#39;</span><span>))</span><span style="color: #9ECBFF;"> &quot;abc&quot;</span></span>
+<span class="giallo-l"><span style="color: #79B8FF;">Just</span><span> (</span><span style="color: #79B8FF;">97</span><span>,</span><span style="color: #9ECBFF;">&quot;bc&quot;</span><span>)</span></span></code></pre>
+<p><code>ord</code> was "injected" into <code>Parser</code> to produce ASCII number out of parsed 'a'. Also note that fancy looking <code>&lt;$&gt;</code> operator is an alias for <code>fmap</code>. Haskell people
+like using esoteric symbols for operators for some reason.</p>
+<h4 id="applicative">Applicative<a class="post-anchor" href="#applicative" aria-label="Anchor link for: applicative"><span aria-hidden="true">#</span></a>
+</h4>
+<p>Since <code>Parser</code> now implements <code>Functor</code>, it's possible to implement <code>Applicative</code> instance for it. Recap that it's requied to implement 2 following
+functions</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="plain"><span class="giallo-l"><span>  pure :: a -&gt; f a</span></span>
+<span class="giallo-l"><span>  (&lt;*&gt;) :: f (a -&gt; b) -&gt; f a -&gt; f b</span></span></code></pre>
+<p>Let's start with <code>pure</code>. This function just "wraps" value into container. For our parser it means not parsing anything and just returning passed value.</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="haskell"><span class="giallo-l"><span>pure val </span><span style="color: #F97583;">=</span><span style="color: #79B8FF;"> Parser</span><span> (</span><span style="color: #79B8FF;">Just</span><span style="color: #F97583;"> .</span><span> (val,))</span></span></code></pre>
+<p>Next thing is more complex. <code>&lt;*&gt;</code> accepts function wrapped into container and applies it to another container, that holds a value. To better understand what's going on, that's
+how it works with <code>Maybe</code>:</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="haskell"><span class="giallo-l"><span>λ</span><span style="color: #F97583;">&gt;</span><span style="color: #79B8FF;"> Just</span><span> (</span><span style="color: #F97583;">+</span><span style="color: #79B8FF;"> 1</span><span>)</span><span style="color: #F97583;"> &lt;*&gt;</span><span style="color: #79B8FF;"> Just 2</span></span>
+<span class="giallo-l"><span style="color: #79B8FF;">Just 3</span></span>
+<span class="giallo-l"><span>λ</span><span style="color: #F97583;">&gt;</span><span style="color: #79B8FF;"> Just</span><span> (</span><span style="color: #F97583;">+</span><span style="color: #79B8FF;"> 1</span><span>)</span><span style="color: #F97583;"> &lt;*&gt;</span><span style="color: #79B8FF;"> Nothing</span></span>
+<span class="giallo-l"><span style="color: #79B8FF;">Nothing</span></span></code></pre>
+<p>Not scary at all: it's just <code>fmap</code>, but function is wrapped into container. Let's implement using <code>do</code> notation right away, since <code>case of</code> spaghetti would be unreadable.</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="haskell"><span class="giallo-l"><span>  (</span><span style="color: #79B8FF;">Parser</span><span> fn)</span><span style="color: #F97583;"> &lt;*&gt;</span><span> (</span><span style="color: #79B8FF;">Parser</span><span> f)</span><span style="color: #F97583;"> =</span></span>
+<span class="giallo-l"><span style="color: #79B8FF;">    Parser</span></span>
+<span class="giallo-l"><span>      (</span><span style="color: #F97583;"> \</span><span>x </span><span style="color: #F97583;">-&gt; do</span></span>
+<span class="giallo-l"><span>          (fn&#39;, other)</span><span style="color: #F97583;"> &lt;-</span><span> fn x</span></span>
+<span class="giallo-l"><span>          (v, other&#39;)</span><span style="color: #F97583;"> &lt;-</span><span> f other</span></span>
+<span class="giallo-l"><span>          return (fn&#39; v, other&#39;)</span></span>
+<span class="giallo-l"><span>      )</span></span></code></pre>
+<p>This gives our parser very powerful property -- chaining. Now it's possible to parse strings:</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="haskell"><span class="giallo-l"><span>λ</span><span style="color: #F97583;">&gt;</span><span> runParser  (fmap (</span><span style="color: #F97583;">\</span><span>old a b </span><span style="color: #F97583;">-&gt;</span><span> old </span><span style="color: #F97583;">++</span><span> [a]</span><span style="color: #F97583;"> ++</span><span> [b]) (pure </span><span style="color: #9ECBFF;">&quot;&quot;</span><span style="color: #F97583;"> :: Parser String</span><span>)</span><span style="color: #F97583;"> &lt;*&gt;</span><span> parseChar </span><span style="color: #9ECBFF;">&#39;a&#39;</span><span style="color: #F97583;"> &lt;*&gt;</span><span> parseChar </span><span style="color: #9ECBFF;">&#39;b&#39;</span><span>)</span><span style="color: #9ECBFF;"> &quot;abc&quot;</span></span>
+<span class="giallo-l"><span style="color: #79B8FF;">Just</span><span> (</span><span style="color: #9ECBFF;">&quot;ab&quot;</span><span>,</span><span style="color: #9ECBFF;">&quot;c&quot;</span><span>)</span></span></code></pre>
+<p>Using this kind of construction for parsing string would be really annoying, but this problem is already solved by <code>traverse</code> function, that was
+mentioned before! So it's possible to define string parser as follows:</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="haskell"><span class="giallo-l"><span style="color: #B392F0;">parseString</span><span style="color: #F97583;"> :: String -&gt; Parser String</span></span>
+<span class="giallo-l"><span>parseString </span><span style="color: #F97583;">=</span><span> traverse parseChar</span></span></code></pre>
+<p>And test it:</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="haskell"><span class="giallo-l"><span>λ</span><span style="color: #F97583;">&gt;</span><span> runParser (parseString </span><span style="color: #9ECBFF;">&quot;hello&quot;</span><span>)</span><span style="color: #9ECBFF;"> &quot;hello, world!&quot;</span></span>
+<span class="giallo-l"><span style="color: #79B8FF;">Just</span><span> (</span><span style="color: #9ECBFF;">&quot;hello&quot;</span><span>,</span><span style="color: #9ECBFF;">&quot;, world!&quot;</span><span>)</span></span></code></pre>
+<p>Note that applicative gives up another 2 important operators: <code>&lt;*</code> and <code>*&gt;</code>. I understand them as follows "chain 2 applicatives,
+but pick the result of the one the arrow is pointing to.</p>
+<p>As an example:</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="haskell"><span class="giallo-l"><span>λ</span><span style="color: #F97583;">&gt;</span><span> runParser (parseString </span><span style="color: #9ECBFF;">&quot;hello&quot;</span><span style="color: #F97583;"> &lt;*</span><span> parseString </span><span style="color: #9ECBFF;">&quot;world&quot;</span><span>)</span><span style="color: #9ECBFF;"> &quot;helloworld&quot;</span></span>
+<span class="giallo-l"><span style="color: #79B8FF;">Just</span><span> (</span><span style="color: #9ECBFF;">&quot;hello&quot;</span><span>,</span><span style="color: #9ECBFF;">&quot;&quot;</span><span>)</span></span>
+<span class="giallo-l"><span>λ</span><span style="color: #F97583;">&gt;</span><span> runParser (parseString </span><span style="color: #9ECBFF;">&quot;hello&quot;</span><span style="color: #F97583;"> *&gt;</span><span> parseString </span><span style="color: #9ECBFF;">&quot;world&quot;</span><span>)</span><span style="color: #9ECBFF;"> &quot;helloworld&quot;</span></span>
+<span class="giallo-l"><span style="color: #79B8FF;">Just</span><span> (</span><span style="color: #9ECBFF;">&quot;world&quot;</span><span>,</span><span style="color: #9ECBFF;">&quot;&quot;</span><span>)</span></span></code></pre>
+<p>We will need it for skipping white-spaces, for instance.</p>
+<h4 id="alternative">Alternative<a class="post-anchor" href="#alternative" aria-label="Anchor link for: alternative"><span aria-hidden="true">#</span></a>
+</h4>
+<p>The only thing left is to implement <code>Alternative</code> instance. Imagine parsing bool value in json. It could be represented via "true" or "false". Current
+implementation of parser cannot choose between different values, since it parses until it finds mismatch of EOF.</p>
+<p><code>Alternative</code> is a way to choose between 2 applicatives.</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="haskell"><span class="giallo-l"><span style="color: #F97583;">class Applicative</span><span> f</span><span style="color: #F97583;"> =&gt; Alternative</span><span> f</span><span style="color: #F97583;"> where</span></span>
+<span class="giallo-l"><span style="color: #B392F0;">  empty</span><span style="color: #F97583;"> ::</span><span> f a</span></span>
+<span class="giallo-l"><span style="color: #B392F0;">  (&lt;|&gt;)</span><span style="color: #F97583;"> ::</span><span> f a</span><span style="color: #F97583;"> -&gt;</span><span> f a</span><span style="color: #F97583;"> -&gt;</span><span> f a</span></span></code></pre>
+<p>Operator <code>&lt;|&gt;</code> takes two applicatives and chooses one of them. For our parser this means we can try one and
+if it fails we fall back to another one:</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="haskell"><span class="giallo-l"><span style="color: #F97583;">instance Alternative Parser where</span></span>
+<span class="giallo-l"><span>  empty </span><span style="color: #F97583;">=</span><span style="color: #79B8FF;"> Parser</span><span> (const </span><span style="color: #79B8FF;">Nothing</span><span>)</span></span>
+<span class="giallo-l"><span>  (</span><span style="color: #79B8FF;">Parser</span><span> fn)</span><span style="color: #F97583;"> &lt;|&gt;</span><span> (</span><span style="color: #79B8FF;">Parser</span><span> fn&#39;)</span><span style="color: #F97583;"> =</span></span>
+<span class="giallo-l"><span style="color: #79B8FF;">    Parser</span></span>
+<span class="giallo-l"><span>      (</span><span style="color: #F97583;"> \</span><span>x </span><span style="color: #F97583;">-&gt;</span></span>
+<span class="giallo-l"><span style="color: #F97583;">          case</span><span> fn x </span><span style="color: #F97583;">of</span></span>
+<span class="giallo-l"><span style="color: #79B8FF;">            Nothing</span><span style="color: #F97583;"> -&gt;</span><span> fn&#39; x</span></span>
+<span class="giallo-l"><span style="color: #79B8FF;">            Just</span><span> e </span><span style="color: #F97583;">-&gt;</span><span style="color: #79B8FF;"> Just</span><span> e</span></span>
+<span class="giallo-l"><span>      )</span></span></code></pre>
+<p>Now it's possible to do something like this:</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="haskell"><span class="giallo-l"><span>λ</span><span style="color: #F97583;">&gt;</span><span> runParser (parseString </span><span style="color: #9ECBFF;">&quot;hello&quot;</span><span style="color: #F97583;"> &lt;|&gt;</span><span> parseString </span><span style="color: #9ECBFF;">&quot;world&quot;</span><span>)</span><span style="color: #9ECBFF;"> &quot;world hello&quot;</span></span>
+<span class="giallo-l"><span style="color: #79B8FF;">Just</span><span> (</span><span style="color: #9ECBFF;">&quot;world&quot;</span><span>,</span><span style="color: #9ECBFF;">&quot; hello&quot;</span><span>)</span></span></code></pre><h2 id="parsing-json">Parsing Json<a class="post-anchor" href="#parsing-json" aria-label="Anchor link for: parsing-json"><span aria-hidden="true">#</span></a>
+</h2>
+<h3 id="skipping-spaces">Skipping spaces<a class="post-anchor" href="#skipping-spaces" aria-label="Anchor link for: skipping-spaces"><span aria-hidden="true">#</span></a>
+</h3>
+<p>Since Json is not space-sensitive format, parser should not take them into account. To skip them we need
+a parser that just reads all spaces.</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="haskell"><span class="giallo-l"><span style="color: #B392F0;">skipSpace</span><span style="color: #F97583;"> :: Parser String</span></span>
+<span class="giallo-l"><span>skipSpace </span><span style="color: #F97583;">=</span><span> parseWhile (parseChar </span><span style="color: #9ECBFF;">&#39; &#39;</span><span>)</span><span style="color: #F97583;"> &lt;|&gt;</span><span> pure </span><span style="color: #9ECBFF;">&quot;&quot;</span></span></code></pre>
+<p>There is a function <code>parseWhile</code> which I did not mention, but it is a parser that runs another parser
+until it does not return an error. Just in case there is spaces at all, there is <code>&lt;|&gt; pure ""</code> fallback
+which just returns an empty string, indicating that there were no spaces in input string.</p>
+<h3 id="null">Null<a class="post-anchor" href="#null" aria-label="Anchor link for: null"><span aria-hidden="true">#</span></a>
+</h3>
+<p>The easiest one to parse is <code>Null</code> value. <code>Null</code> value is represented as simple "null" string.</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="haskell"><span class="giallo-l"><span style="color: #B392F0;">parseNull</span><span style="color: #F97583;"> :: Parser Value</span></span>
+<span class="giallo-l"><span>parseNull </span><span style="color: #F97583;">=</span><span> const </span><span style="color: #79B8FF;">Null</span><span style="color: #F97583;"> &lt;$&gt;</span><span> parseString </span><span style="color: #9ECBFF;">&quot;null&quot;</span></span></code></pre>
+<p>Null parser just parses "null" string and <code>fmaps</code> result to <code>Null</code> Json value.</p>
+<h3 id="boolean">Boolean<a class="post-anchor" href="#boolean" aria-label="Anchor link for: boolean"><span aria-hidden="true">#</span></a>
+</h3>
+<p>Boolean is represented with either "true" or "false" strings. We can use <code>Alternative</code> property of our
+parser to choose between "true" and "false" values.</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="haskell"><span class="giallo-l"><span style="color: #B392F0;">parseBool</span><span style="color: #F97583;"> :: Parser Value</span></span>
+<span class="giallo-l"><span>parseBool </span><span style="color: #F97583;">=</span><span> (</span><span style="color: #F97583;">\</span><span>x </span><span style="color: #F97583;">-&gt; if</span><span> x </span><span style="color: #F97583;">==</span><span style="color: #9ECBFF;"> &quot;true&quot;</span><span style="color: #F97583;"> then</span><span style="color: #79B8FF;"> Boolean True</span><span style="color: #F97583;"> else</span><span style="color: #79B8FF;"> Boolean False</span><span>)</span><span style="color: #F97583;"> &lt;$&gt;</span><span> (parseString </span><span style="color: #9ECBFF;">&quot;true&quot;</span><span style="color: #F97583;"> &lt;|&gt;</span><span> parseString </span><span style="color: #9ECBFF;">&quot;false&quot;</span><span>)</span></span></code></pre><h3 id="number">Number<a class="post-anchor" href="#number" aria-label="Anchor link for: number"><span aria-hidden="true">#</span></a>
+</h3>
+<p>Based on BNF grammar from the beginning of the article, there are 2 types of number: integers and doubles.
+Let's look at their parsers implementation:</p>
+<p>Integer parsing is quite straightforward: just read characters until they are numbers.</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="haskell"><span class="giallo-l"><span style="color: #B392F0;">    intParser</span><span style="color: #F97583;"> :: Parser String</span></span>
+<span class="giallo-l"><span>    intParser </span><span style="color: #F97583;">=</span><span> parseWhile (parseCond isNumber)</span></span></code></pre>
+<p>Double parser is a bit tricky, but idea is simple. The idea is to look at the floating point number as two integers,
+separated by '.' character:</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="haskell"><span class="giallo-l"><span style="color: #B392F0;">    doubleParser</span><span style="color: #F97583;"> :: Parser String</span></span>
+<span class="giallo-l"><span>    doubleParser </span><span style="color: #F97583;">=</span><span> fmap concat intParser </span><span style="color: #F97583;">&lt;*&gt;</span><span> parseString </span><span style="color: #9ECBFF;">&quot;.&quot;</span><span style="color: #F97583;"> &lt;*&gt;</span><span> intParser</span></span></code></pre>
+<p>And to handle negative numbers we need another parser that just tries to read '-' and then double or integer:</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="haskell"><span class="giallo-l"><span style="color: #B392F0;">    negativeInt</span><span style="color: #F97583;"> :: Parser String</span></span>
+<span class="giallo-l"><span>    negativeInt </span><span style="color: #F97583;">=</span><span> fmap (</span><span style="color: #B392F0;">++</span><span>) (parseString </span><span style="color: #9ECBFF;">&quot;-&quot;</span><span>)</span><span style="color: #F97583;"> &lt;*&gt;</span><span> (doubleParser </span><span style="color: #F97583;">&lt;|&gt;</span><span> intParser)</span></span></code></pre>
+<p>Equipped with these 3 parsers, it's quite easy to write generic parser for any number: just chain them all with <code>&lt;|&gt;</code> a
+pass result to <code>read</code> function which converts string to a number.</p>
+<p>The whole number parsing function is shown below:</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="haskell"><span class="giallo-l"><span style="color: #B392F0;">parseInt</span><span style="color: #F97583;"> :: Parser Value</span></span>
+<span class="giallo-l"><span>parseInt </span><span style="color: #F97583;">=</span></span>
+<span class="giallo-l"><span style="color: #79B8FF;">  Number</span><span style="color: #F97583;"> .</span><span> read </span><span style="color: #F97583;">&lt;$&gt;</span><span> (skipSpace </span><span style="color: #F97583;">*&gt;</span><span> (doubleParser </span><span style="color: #F97583;">&lt;|&gt;</span><span> intParserNotFromZero </span><span style="color: #F97583;">&lt;|&gt;</span><span> negativeInt))</span></span>
+<span class="giallo-l"><span style="color: #F97583;">  where</span></span>
+<span class="giallo-l"><span style="color: #B392F0;">    intParser, doubleParser, negativeInt</span><span style="color: #F97583;"> :: Parser String</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>    negativeInt </span><span style="color: #F97583;">=</span><span> fmap (</span><span style="color: #B392F0;">++</span><span>) (parseString </span><span style="color: #9ECBFF;">&quot;-&quot;</span><span>)</span><span style="color: #F97583;"> &lt;*&gt;</span><span> (doubleParser </span><span style="color: #F97583;">&lt;|&gt;</span><span> intParser)</span></span>
+<span class="giallo-l"><span>    intParserNotFromZero </span><span style="color: #F97583;">=</span><span> test </span><span style="color: #F97583;">*&gt;</span><span> parseWhile (parseCond isNumber)</span></span>
+<span class="giallo-l"><span>    intParser </span><span style="color: #F97583;">=</span><span> parseWhile (parseCond isNumber)</span></span>
+<span class="giallo-l"><span>    doubleParser </span><span style="color: #F97583;">=</span><span> fmap concat intParser </span><span style="color: #F97583;">&lt;*&gt;</span><span> parseString </span><span style="color: #9ECBFF;">&quot;.&quot;</span><span style="color: #F97583;"> &lt;*&gt;</span><span> intParser</span></span>
+<span class="giallo-l"><span>    concat a b c </span><span style="color: #F97583;">=</span><span> a </span><span style="color: #F97583;">++</span><span> b </span><span style="color: #F97583;">++</span><span> c</span></span></code></pre><h3 id="string">String<a class="post-anchor" href="#string" aria-label="Anchor link for: string"><span aria-hidden="true">#</span></a>
+</h3>
+<p>In Json strings are represented as string in quotation marks. So parser should parse quotation mark and read everthing
+until the next quotation mark:</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="haskell"><span class="giallo-l"><span style="color: #B392F0;">parseStringValue</span><span style="color: #F97583;"> :: Parser Value</span></span>
+<span class="giallo-l"><span>parseStringValue </span><span style="color: #F97583;">=</span><span style="color: #79B8FF;"> String</span><span style="color: #F97583;"> &lt;$&gt;</span><span> (parseChar </span><span style="color: #9ECBFF;">&#39;</span><span style="color: #79B8FF;">\&quot;</span><span style="color: #9ECBFF;">&#39;</span><span style="color: #F97583;"> *&gt;</span><span> (parseWhile (parseCond (</span><span style="color: #F97583;">/=</span><span style="color: #9ECBFF;"> &#39;</span><span style="color: #79B8FF;">\&quot;</span><span style="color: #9ECBFF;">&#39;</span><span>))</span><span style="color: #F97583;"> &lt;|&gt;</span><span> pure </span><span style="color: #9ECBFF;">&quot;&quot;</span><span>)</span><span style="color: #F97583;"> &lt;*</span><span> parseChar </span><span style="color: #9ECBFF;">&#39;</span><span style="color: #79B8FF;">\&quot;</span><span style="color: #9ECBFF;">&#39;</span><span>)</span></span></code></pre>
+<p>Here we use <code>*&gt;</code> and <code>&lt;*</code> just to ignore parsed quotation marks, since the are not part of the string itself.</p>
+<h3 id="array">Array<a class="post-anchor" href="#array" aria-label="Anchor link for: array"><span aria-hidden="true">#</span></a>
+</h3>
+<p>Arrays in Json are untyped, so they could contain any types (like tuples in statically typed languages). Array are
+represented as list of valid Json object separated by ',' in '[]' brackets.</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="haskell"><span class="giallo-l"><span style="color: #B392F0;">parseArray</span><span style="color: #F97583;"> :: Parser Value</span></span>
+<span class="giallo-l"><span>parseArray </span><span style="color: #F97583;">=</span></span>
+<span class="giallo-l"><span style="color: #79B8FF;">  Array</span></span>
+<span class="giallo-l"><span style="color: #F97583;">    &lt;$&gt;</span><span> ( parseChar </span><span style="color: #9ECBFF;">&#39;[&#39;</span></span>
+<span class="giallo-l"><span style="color: #F97583;">            *&gt;</span><span> ((parseSep (skipSpace </span><span style="color: #F97583;">*&gt;</span><span> parseJson </span><span style="color: #F97583;">&lt;*</span><span> skipSpace) (parseString </span><span style="color: #9ECBFF;">&quot;,&quot;</span><span>))</span><span style="color: #F97583;"> &lt;|&gt;</span><span> pure </span><span style="color: #79B8FF;">[]</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #F97583;">            &lt;*</span><span> parseChar </span><span style="color: #9ECBFF;">&#39;]&#39;</span></span>
+<span class="giallo-l"><span>        )</span></span></code></pre>
+<p><code>parseSep</code> is another helper parser (like <code>parseUntil</code>) that adapts 2 parsers: one for a value and one for the separator and
+returns a list of parsed objects.</p>
+<h3 id="object">Object<a class="post-anchor" href="#object" aria-label="Anchor link for: object"><span aria-hidden="true">#</span></a>
+</h3>
+<p>Json object is a pairs like collection of pair <code>"name" : &lt;Json&gt;</code>, wrapped with curly braces, where <code>Json</code> is a valid json object.</p>
+<p>First of all, let's define pair parser, which will consume string, ':' and any valid json object.</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="haskell"><span class="giallo-l"><span style="color: #B392F0;">parsePair</span><span style="color: #F97583;"> :: Parser</span><span> (</span><span style="color: #F97583;">Value</span><span>,</span><span style="color: #F97583;"> Value</span><span>)</span></span>
+<span class="giallo-l"><span>parsePair </span><span style="color: #F97583;">=</span></span>
+<span class="giallo-l"><span style="color: #79B8FF;">  Parser</span></span>
+<span class="giallo-l"><span>    (</span><span style="color: #F97583;"> \</span><span>x </span><span style="color: #F97583;">-&gt; do</span></span>
+<span class="giallo-l"><span>        (str, other)</span><span style="color: #F97583;"> &lt;-</span><span> runParser parseStringValue x</span></span>
+<span class="giallo-l"><span>        (val, other&#39;)</span><span style="color: #F97583;"> &lt;-</span><span> runParser (skipSpace </span><span style="color: #F97583;">*&gt;</span><span> parseChar </span><span style="color: #9ECBFF;">&#39;:&#39;</span><span style="color: #F97583;"> *&gt;</span><span> skipSpace </span><span style="color: #F97583;">*&gt;</span><span> parseJson) other</span></span>
+<span class="giallo-l"><span>        return ((str, val), other&#39;)</span></span>
+<span class="giallo-l"><span>    )</span></span></code></pre>
+<p>I am using <code>do</code> notation to make code readable, but <code>&lt;*&gt;</code> could be used here as well. Then parsing whole Json object is
+trivial. We need to parse curly braces and parse pairs separated by ','.</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="haskell"><span class="giallo-l"><span style="color: #B392F0;">parseObject</span><span style="color: #F97583;"> :: Parser Value</span></span>
+<span class="giallo-l"><span>parseObject </span><span style="color: #F97583;">=</span></span>
+<span class="giallo-l"><span style="color: #79B8FF;">  Object</span></span>
+<span class="giallo-l"><span style="color: #F97583;">    &lt;$&gt;</span><span> ( parseChar </span><span style="color: #9ECBFF;">&#39;{&#39;</span></span>
+<span class="giallo-l"><span style="color: #F97583;">            *&gt;</span><span> ((parseSep (skipSpace </span><span style="color: #F97583;">*&gt;</span><span> parsePair </span><span style="color: #F97583;">&lt;*</span><span> skipSpace) (parseString </span><span style="color: #9ECBFF;">&quot;,&quot;</span><span>))</span><span style="color: #F97583;"> &lt;|&gt;</span><span> pure </span><span style="color: #79B8FF;">[]</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #F97583;">            &lt;*</span><span> parseChar </span><span style="color: #9ECBFF;">&#39;}&#39;</span></span>
+<span class="giallo-l"><span>        )</span></span>
+<span class="giallo-l"></span></code></pre><h2 id="conclusion">Conclusion<a class="post-anchor" href="#conclusion" aria-label="Anchor link for: conclusion"><span aria-hidden="true">#</span></a>
+</h2>
+<p>I was very impressed that whole parser is only 150 LoC. I am new to FP world, so I guess, it could be done even with less code,
+but at the end I learned a lot about Haskell types and stuff.</p>
+<p>The whole code could be found <a rel="external" href="https://github.com/pskrgag/haskell_training/blob/master/4kuy/json.hs">here</a></p>
+
+        </article>
+        <nav class="post-navigation">
+            <header class="post-navigation-title">
+                <h2>Read More Posts</h2>
+                <hr>
+            </header>
+            <div class="post-navigation-buttons">
+                <a rel="next" href="https://pskrgag.github.io/post/mpmc-vuykov/" aria-label="Next article" aria-describedby="next-title">
+                    &lt;&nbsp;[<span id="next-title">Understanding Vyukov MPMC ring buffer</span>]
+                </a>
+                <span aria-hidden="true" role="separator">::</span>
+                <a rel="prev" href="https://pskrgag.github.io/post/test-post/" aria-label="Prev article" aria-describedby="prev-title">
+                    [<span id="prev-title">How to fix a bug in the Linux kernel</span>]&nbsp;&gt;
+                </a>
+            </div>
+        </nav>
+    </main>
+    <footer class="footer">
+        <p class="copyright">
+            <span>© <time>2026</time></span>
+            <span>Powered by <a rel="external" href="https://www.getzola.org">Zola</a></span>
+            <span>Theme by <a rel="external" href="https://eyalkalderon.com">ebkalderon</a></span>
+        </p>
+    </footer>
+</body>
+
+</html>

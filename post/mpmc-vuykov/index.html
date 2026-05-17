@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src-attr 'unsafe-inline'">
+
+    <title>Understanding Vyukov MPMC ring buffer | Random notes from OS developer</title>
+
+    <link rel="preload" href="https://pskrgag.github.io/fonts/FiraCode-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+    <link rel="preload" href="https://pskrgag.github.io/fonts/FiraCode-Bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://pskrgag.github.io/css/style.css?h=f91747564993ff5cb597">
+    <script src="https://pskrgag.github.io/js/auto-close-popover-on-resize.js?h=4ef87d6fc7b98b22e044" defer></script>
+    <script src="https://pskrgag.github.io/js/copy-code-to-clipboard.js?h=6eec6d5a29e934c1de32" defer></script>
+
+    <link rel="canonical" href="https://pskrgag.github.io/post/mpmc-vuykov/">
+    
+    <meta name="description" content="Random notes">
+    <meta name="robots" content="index, follow">
+    <meta name="theme-color" content="#211f1a">
+    <meta name="color-scheme" content="dark">
+
+    <meta property="og:title" content="Understanding Vyukov MPMC ring buffer">
+    <meta property="og:type" content="article">
+    <meta property="og:url" content="https://pskrgag.github.io/post/mpmc-vuykov/">
+    <meta property="og:description" content="Random notes">
+    <meta property="og:site_name" content="Random notes from OS developer">
+    <meta property="og:updated_time" content="2026-05-17T16:31:15.798017552+00:00">
+    <meta property="article:published_time" content="2025-01-05T00:00:00+00:00">
+    <meta name="twitter:label2" content="Reading time">
+    <meta name="twitter:data2" content="3 min">
+</head>
+
+<body class="layout-center" data-theme="terminus">
+    <header class="header">
+        <div class="header-container">
+            <span class="header-logo-container">
+                <a href="https://pskrgag.github.io">
+                    <span class="logo">Random notes from OS developer</span>
+                </a>
+            </span>
+        </div>
+    </header>
+    <main id="main">
+        <article class="post content">
+            <header>
+                <h1 class="post-title">
+                    <a href="https://pskrgag.github.io/post/mpmc-vuykov/">Understanding Vyukov MPMC ring buffer</a>
+                </h1>
+                <ul class="post-meta hidden">
+                    <li title="Published on 2025-01-05"><time datetime="2025-01-05">2025.01.05</time></li>
+                    <li role="separator" aria-hidden="true">::</li>
+                    <li title="426 words"><time datetime="PT3M">3 min</time> read</li>
+                </ul>
+            </header>
+
+<h2 id="intro">Intro<a class="post-anchor" href="#intro" aria-label="Anchor link for: intro"><span aria-hidden="true">#</span></a>
+</h2>
+<p>Recently I had to create a simple MPMC ring buffer for inter-cpu communication based on shared memory between them.
+For simplicity let's imagine N threads, which share same buffer and exchange messages of the fixed size. Quick search in known
+concurrency-related blogs showed me very simple ring buffer by <a rel="external" href="https://www.1024cores.net/home/lock-free-algorithms/queues/bounded-mpmc-queue">Dmitry Vyukov</a>.</p>
+<p>In this blog post I will summarize how it works.</p>
+<h2 id="bounded-mpmc-queue">Bounded MPMC Queue<a class="post-anchor" href="#bounded-mpmc-queue" aria-label="Anchor link for: bounded-mpmc-queue"><span aria-hidden="true">#</span></a>
+</h2>
+<p>MPMC stands for multi-producer and multi-consumer queue, which means that queue support multiply concurrent readers and writers while reversing
+consistency. Bounded means that queue can hold only fixed number of messages. If queue is full, then push will fail.</p>
+<p>Dmitry's design uses fixed array of structures called cells:</p>
+<p>(I am using C-ish pseudo-code, not a real language)</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="c"><span class="giallo-l"><span style="color: #F97583;">struct</span><span> Cell</span><span style="color: #F97583;">&lt;</span><span>T</span><span style="color: #F97583;">&gt;</span><span> {</span></span>
+<span class="giallo-l"><span>    atomic</span><span style="color: #F97583;">&lt;size_t&gt;</span><span> sequence_number;</span></span>
+<span class="giallo-l"><span>    T data;</span></span>
+<span class="giallo-l"><span>};</span></span></code></pre>
+<p>Queue itself contains classical head, tail and number of elements. For performance reasons size of the array should be power of 2. This causes module operation like
+<code>idx % size</code> to compile into single <code>and</code> instruction.</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="c"><span class="giallo-l"><span style="color: #F97583;">struct</span><span> Queue</span><span style="color: #F97583;">&lt;</span><span>T</span><span style="color: #F97583;">&gt;</span><span> {</span></span>
+<span class="giallo-l"><span>    Cell </span><span style="color: #F97583;">*</span><span>data;</span></span>
+<span class="giallo-l"><span>    atomic</span><span style="color: #F97583;">&lt;size_t&gt;</span><span> head;</span></span>
+<span class="giallo-l"><span>    atomic</span><span style="color: #F97583;">&lt;size_t&gt;</span><span> tail;</span></span>
+<span class="giallo-l"><span style="color: #F97583;">    size_t</span><span> size_mask;</span></span>
+<span class="giallo-l"><span>};</span></span></code></pre><h3 id="initialization">Initialization<a class="post-anchor" href="#initialization" aria-label="Anchor link for: initialization"><span aria-hidden="true">#</span></a>
+</h3>
+<p>During construction each cell is initialized with <code>sequence_number</code> equal to it's position index.</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="c"><span class="giallo-l"><span style="color: #F97583;">    for</span><span> (</span><span style="color: #F97583;">size_t</span><span> i </span><span style="color: #F97583;">=</span><span style="color: #79B8FF;"> 0</span><span>; i </span><span style="color: #F97583;">&lt;</span><span> num_elements;</span><span style="color: #F97583;"> ++</span><span>i)</span></span>
+<span class="giallo-l"><span style="color: #B392F0;">        atomic_store_explicit</span><span>(</span><span style="color: #F97583;">&amp;</span><span>queue</span><span style="color: #F97583;">-&gt;</span><span style="color: #FFAB70;">data</span><span>[i].seq, i, __ATOMIC_RELAXED);</span></span></code></pre>
+<p><code>head</code> and <code>tail</code> indexes are initialized to 0.</p>
+<p>In memory this looks like (for simplicity let's take array size equal to 2)</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="plain"><span class="giallo-l"><span>+---+   +---+</span></span>
+<span class="giallo-l"><span>| 0 | - | 1 |</span></span>
+<span class="giallo-l"><span>+---+   +---+</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>head = 0;</span></span>
+<span class="giallo-l"><span>tail = 0;</span></span></code></pre><h3 id="pushing">Pushing<a class="post-anchor" href="#pushing" aria-label="Anchor link for: pushing"><span aria-hidden="true">#</span></a>
+</h3>
+<p>Push is only possible if <code>data[head].sequence_number</code> is equal to <code>head</code>. On successful push, <code>head</code> and <code>sequence_number</code> indexes are incremented.
+However if they are not equal there are 2 possible cases:</p>
+<ol>
+<li><code>head</code> &gt; <code>sequence_number</code>. In such case queue is simply full. Let's take an example from image above. If we push 2 elements queue will have following state:</li>
+</ol>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="plain"><span class="giallo-l"><span>+---+   +---+</span></span>
+<span class="giallo-l"><span>| 1 | - | 2 |</span></span>
+<span class="giallo-l"><span>+---+   +---+</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>head = 2;</span></span>
+<span class="giallo-l"><span>tail = 0;</span></span></code></pre>
+<ol start="2">
+<li>If <code>head</code> &lt; <code>sequence_number</code>. Such case means push contention and we need to retry. This could happen in following case:</li>
+</ol>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="plain"><span class="giallo-l"><span>                CPU0                                CPU1</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>x0 = read_head()                               x0 = read_head()</span></span>
+<span class="giallo-l"><span>x1 = read_seq_number()</span></span>
+<span class="giallo-l"><span>if (x0 == x1)   // EQUALS</span></span>
+<span class="giallo-l"><span>   cas(seq, seq, seq + 1)</span></span>
+<span class="giallo-l"><span>                                               x1 = read_seq_number()</span></span>
+<span class="giallo-l"><span>                                               // CPU0 has just updated sequence_number, while x0 hold</span></span>
+<span class="giallo-l"><span>                                               // old head index</span></span>
+<span class="giallo-l"><span>                                               if (x0 &lt; x1)</span></span>
+<span class="giallo-l"><span>                                                  &lt;retry&gt;</span></span></code></pre><h3 id="popping">Popping<a class="post-anchor" href="#popping" aria-label="Anchor link for: popping"><span aria-hidden="true">#</span></a>
+</h3>
+<p>Pop is only possible if <code>data[tail].sequence_number</code> is equal to <code>tail + 1</code>. This +1 comes from push, since successful push increments
+sequence number. On successful pop, <code>tail</code> is incremented, while <code>sequence_number</code> is assigned to value <code>tail + array_size</code>. This step sets
+sequence_number equal to suitalbe <code>head</code> for pushing. In general it's the next number <code>N</code> that satisfies <code>i = N MOD array_size</code>, where <code>i</code> is
+an array index.</p>
+<p>However if they are not equal there are also 2 possible cases:</p>
+<ol>
+<li><code>tail + 1</code> &gt; <code>sequence_number</code>. Such case means that queue is empty.</li>
+</ol>
+<p>Let's again see some pictures</p>
+<p>Empty queue:</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="plain"><span class="giallo-l"><span>+---+   +---+</span></span>
+<span class="giallo-l"><span>| 0 | - | 1 |</span></span>
+<span class="giallo-l"><span>+---+   +---+</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>head = 0;</span></span>
+<span class="giallo-l"><span>tail = 0;</span></span></code></pre>
+<p>Pop is not possible, since <code>data[tail].sequence_number + 1 &gt; pos</code>.</p>
+<p>Queue with 1 element:</p>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="plain"><span class="giallo-l"><span>+---+   +---+</span></span>
+<span class="giallo-l"><span>| 1 | - | 1 |</span></span>
+<span class="giallo-l"><span>+---+   +---+</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>head = 1;</span></span>
+<span class="giallo-l"><span>tail = 0;</span></span></code></pre>
+<p>Now we can pop, since <code>sequence_number</code> is equal to 1.</p>
+<ol start="2">
+<li><code>tail + 1</code> &lt; <code>sequence_number</code>. This case indicates contention on pop alike in push case</li>
+</ol>
+<pre class="giallo" style="color: #E1E4E8; background-color: #24292E;"><code data-lang="plain"><span class="giallo-l"><span>                CPU0                                CPU1</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>x0 = read_tail()                               x0 = read_tail()</span></span>
+<span class="giallo-l"><span>x1 = read_seq_number()</span></span>
+<span class="giallo-l"><span>if (x0 + 1 == x1)   // EQUALS</span></span>
+<span class="giallo-l"><span>   cas(seq, seq, seq + array_size)</span></span>
+<span class="giallo-l"><span>                                               x1 = read_seq_number()</span></span>
+<span class="giallo-l"><span>                                               // CPU0 has just updated sequence_number, while x0 hold</span></span>
+<span class="giallo-l"><span>                                               // old tail index</span></span>
+<span class="giallo-l"><span>                                               if (x0 + 1 &lt; x1)</span></span>
+<span class="giallo-l"><span>                                                  &lt;retry&gt;</span></span></code></pre>
+        </article>
+        <nav class="post-navigation">
+            <header class="post-navigation-title">
+                <h2>Read More Posts</h2>
+                <hr>
+            </header>
+            <div class="post-navigation-buttons">
+                <a rel="next" href="https://pskrgag.github.io/post/type-safe-packed-pointers/" aria-label="Next article" aria-describedby="next-title">
+                    &lt;&nbsp;[<span id="next-title">Type safe packed pointers in C</span>]
+                </a>
+                <span aria-hidden="true" role="separator">::</span>
+                <a rel="prev" href="https://pskrgag.github.io/post/json/" aria-label="Prev article" aria-describedby="prev-title">
+                    [<span id="prev-title">Subset of JSON parser in 150 lines of Haskell code</span>]&nbsp;&gt;
+                </a>
+            </div>
+        </nav>
+    </main>
+    <footer class="footer">
+        <p class="copyright">
+            <span>© <time>2026</time></span>
+            <span>Powered by <a rel="external" href="https://www.getzola.org">Zola</a></span>
+            <span>Theme by <a rel="external" href="https://eyalkalderon.com">ebkalderon</a></span>
+        </p>
+    </footer>
+</body>
+
+</html>
